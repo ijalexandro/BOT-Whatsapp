@@ -21,7 +21,7 @@ const sessionClient = new dialogflow.SessionsClient({
 // Configuración de WhatsApp
 const client = new Client({
   puppeteer: {
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/nix/store/gasnw5878924jbw6bql257ll29hkm4fd-chromium-123.0.6312.105/bin/chromium',
+    executablePath: undefined,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
