@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "saas-whatsapp-gastronomia",
+  "private_key_id": "940daac98a3e45422b79af9b2c514fd1538488ec",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC3RF8ZGNhwo9Gh\nPhiK3nVCXTnBxLjEb+/J5eWl6aFIYbUhEdz3pEO69wilTGmEYSTfftes90U1GcPR\nyRrgv+yWU3Zta5hUsr+hMcmL5zt2r5dRRvDpM7GvtYHmI/+H+TRIosLkaY+du/E7\n6nnxfFjOGO7erw9DzqM6gTg+KzTJ/L6EH+xR9+0JfGWgrbZVZzm9Ke5pCPtCZEPt\nPrDZWyvWxQiKhxKrI+/+Rd1uVLvP/lXk31k1lUut++qO2i9D/nWwlUHrDst/YvqD\ncl5gnBH4pN9l5gXa0GasIXZDnKJ1kOgnWadNI23ZPHv95U4zVrmu+B7DUvhli6So\naJUbuarxAgMBAAECggEAL7Ky0ZRe2Mo6SC4iMxp9CF29J4ps0GuVzEVyhMEOwgj0\nHHxKt4VgP2wGKwd9OwARmb2oopLkx1JCXfpqbW5mRCXK3+WuCvVO3MRZgXkYR+ah\ninzdPMTAjUu/WEesPRaGHhWGhe5Xe6Urvv1i6ZAEiPeCTCDh5zMD1rlFCyExpxQY\nqf4KP3Znu9fFXl+WuGtogPjWxfJWYFb5YKairCDmhlR8pJnemJVbU986TrcVzM3G\nJPS367xZZFiK6IilF32qf6DiC4MUt4i/LZNLayOyofOy0VJojM6pvKJifN7AEDbU\nVXUwF2TmAYuStTfKjb5eY+ZMKuPCtjvIcm4BIRAmJQKBgQDvqsKB93QSF7sqx1LD\ntsBr+pRPdYu38dpI+9a7Cmp9bXuO6U18Eu1p60KgCOARXhk+svHNQ5ryg2F15VNk\nfkssb2ZLAEIji1mj2csUDuNqAZTBTUAh7D9Wcrbh/+7z9aPY9WMNBKMsIhN3TTjl\nFrepPhEqAFGv23QCDrUAa15bpwKBgQDDwafp/ksD3mqRT5PvAKe4bWQclyucopH4\nESYc8GaIgugGe7YFUgyIAcZJoQxwZMiqT/ocUffet3WH7pZcjDyGJ5puJ18yFRAv\nzQV71zw1g/kJtuTtkGpF80PHxQxThMpWItOvRXgtFk4wycpLwxyfkrS8lQUhquDj\nkapIPA03pwKBgDVjXZbkD7gkDy6VXkt4v16OYFFfBvO/7XdKmmfqBxTPubF5KSiV\ncsuge6P4tilIQ+lipVirUa3qNGC16CC/vXE1k5zrftA6L4q/bmyWcHRhy8hPtBSa\ncvWH8lNf1tQDiS9AYoM44DxpjtqJmj32FI2f5OTtU0UQZsQ6kHl6cXeLAoGAVj4W\nRR+0WuL9XkGJ8iz+t2DyTypGm36AAqNDgFJlSdUqddjA630najAl9MBQI6AzS91q\nWlm+c0+uJxH1Cpb5/zypa8hKx1zCQdz4goPj0cvvxtjd6M/MEj9HaFamxJDnN6Wm\nTzyy4mJGVnZAerpd/Ot8VuzsUtXeuEOvmp1iUVcCgYEA3VS1I+aXtI9lw35kx0py\nqtT55CKvNYbhv+v82oonLUTC+fZ16T8ihelhs0Q9/x8LVJrSVu6tXHSozg3vR3l9\n9K79RmpG2T/NK5TwCjMpmjfZJAnMeyq/hck6BkqaUFkCI+ersl9jkq0uskmlsgSn\nJSeiHFzhQretw+Sd62CJEIg=\n-----END PRIVATE KEY-----\n",
+  "client_email": "dialogflow-api-access@saas-whatsapp-gastronomia.iam.gserviceaccount.com",
+  "client_id": "117364059482830323774",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/dialogflow-api-access%40saas-whatsapp-gastronomia.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
