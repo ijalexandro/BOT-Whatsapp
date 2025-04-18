@@ -131,3 +131,6 @@ dist
 
 # Replit debugger
 .breakpoints
+
+dialogflow-api-access.json
+.wwebjs_auth/
