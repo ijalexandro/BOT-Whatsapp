@@ -91,8 +91,9 @@ const humanRequestKeywords = [
 
 // **Eventos de depuración para WhatsApp**
 client.on('qr', (qr) => {
-  console.log('Código QR generado. Escanea este código con tu teléfono:');
-  qrcode.generate(qr, { small: true });
+  console.log('📱 Escaneá este código QR desde WhatsApp Web:');
+  console.log('\n', qr, '\n');
+  console.log('También podés copiarlo en un generador de QR como https://www.qr-code-generator.com/');
 });
 
 client.on('qr_expired', () => {
