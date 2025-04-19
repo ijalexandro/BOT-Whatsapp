@@ -1,7 +1,7 @@
 require('dotenv').config();
 
 const express = require('express');
-const { Client, AuthStrategy } = require('whatsapp-web.js');
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const { createClient } = require('@supabase/supabase-js');
 const bodyParser = require('body-parser');
 const { OpenAI } = require('openai');
@@ -17,16 +17,11 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// Estrategia personalizada para almacenar la sesión en Supabase
-class SupabaseAuth extends AuthStrategy {
+// Estrategia personalizada para almacenar la sesión en Supabase basada en LocalAuth
+class SupabaseLocalAuth extends LocalAuth {
   constructor(clientId, supabase) {
-    super();
-    this.clientId = clientId || 'default-client';
+    super({ clientId: clientId || 'default-client', dataPath: '/tmp/.wwebjs_auth' });
     this.supabase = supabase;
-  }
-
-  async beforeBrowserInitialized() {
-    console.log('Inicializando SupabaseAuth para clientId:', this.clientId);
   }
 
   async afterAuth(data) {
@@ -49,7 +44,31 @@ class SupabaseAuth extends AuthStrategy {
       console.log('Sesión guardada en Supabase');
     }
 
-    return data;
+    // También guardamos localmente para cumplir con LocalAuth
+    await super.afterAuth(data);
+  }
+
+  async getAuth() {
+    console.log('Cargando datos de autenticación desde Supabase');
+    const { data, error } = await this.supabase
+      .from('whatsapp_sessions')
+      .select('session_data')
+      .eq('client_id', this.clientId)
+      .single();
+
+    if (error || !data) {
+      console.error('Error al cargar la sesión de Supabase:', error?.message || 'No encontrada');
+      return super.getAuth();
+    }
+
+    try {
+      const sessionData = JSON.parse(data.session_data);
+      console.log('Sesión cargada desde Supabase');
+      return sessionData;
+    } catch (err) {
+      console.error('Error al parsear los datos de la sesión:', err.message);
+      return super.getAuth();
+    }
   }
 
   async logout() {
@@ -64,27 +83,8 @@ class SupabaseAuth extends AuthStrategy {
     } else {
       console.log('Sesión eliminada de Supabase');
     }
-  }
 
-  async getAuth() {
-    console.log('Cargando datos de autenticación desde Supabase');
-    const { data, error } = await this.supabase
-      .from('whatsapp_sessions')
-      .select('session_data')
-      .eq('client_id', this.clientId)
-      .single();
-
-    if (error || !data) {
-      console.error('Error al cargar la sesión de Supabase:', error?.message || 'No encontrada');
-      return null;
-    }
-
-    try {
-      return JSON.parse(data.session_data);
-    } catch (err) {
-      console.error('Error al parsear los datos de la sesión:', err.message);
-      return null;
-    }
+    await super.logout();
   }
 }
 
@@ -121,7 +121,7 @@ const client = new Client({
     ignoreHTTPSErrors: true,
     dumpio: false
   },
-  authStrategy: new SupabaseAuth('my-client', supabase),
+  authStrategy: new SupabaseLocalAuth('my-client', supabase),
   webVersion: '2.2412.54',
   webVersionCache: {
     type: 'remote',
@@ -538,7 +538,7 @@ async function sendToChatGPT(message, sessionId, context = {}) {
         `Te recomiendo la ${product.nombre}:\nIngredientes: ${product.ingredientes}\nPrecio: ${product.precio}`
       ).join('\n\n') + '\n\n¿Querés que te las reserve?';
     } else {
-      formattedResponse = `Te recomiendo la ${correctedResponse.nombre}:\nIngredientes: ${correctedResponse.ingredientes}\nPrecio: ${correctedResponse.precio}\n\n¿Querés que te la reserve?`;
+      formattedResponse = `Te recomiendo la ${correctedResponse.nombre}:\nIngredientes: ${product.ingredientes}\nPrecio: ${product.precio}\n\n¿Querés que te la reserve?`;
     }
 
     const finalResponse = textAfterJson ? `${formattedResponse}\n\n${textAfterJson}` : formattedResponse;
