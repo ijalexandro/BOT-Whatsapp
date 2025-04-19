@@ -22,26 +22,31 @@ class SupabaseLocalAuth extends LocalAuth {
   constructor(clientId, supabase) {
     super({ clientId: clientId || 'default-client', dataPath: '/tmp/.wwebjs_auth' });
     this.supabase = supabase;
+    console.log('Inicializando SupabaseLocalAuth con clientId:', clientId);
   }
 
   async afterAuth(data) {
-    console.log('Guardando datos de autenticación en Supabase');
+    console.log('Método afterAuth ejecutado. Datos de autenticación:', data);
     const sessionData = JSON.stringify(data);
 
-    const { error } = await this.supabase
-      .from('whatsapp_sessions')
-      .upsert([
-        {
-          client_id: this.clientId,
-          session_data: sessionData,
-          updated_at: new Date().toISOString(),
-        }
-      ], { onConflict: ['client_id'] });
+    try {
+      const { error } = await this.supabase
+        .from('whatsapp_sessions')
+        .upsert([
+          {
+            client_id: this.clientId,
+            session_data: sessionData,
+            updated_at: new Date().toISOString(),
+          }
+        ], { onConflict: ['client_id'] });
 
-    if (error) {
-      console.error('Error al guardar la sesión en Supabase:', error.message);
-    } else {
-      console.log('Sesión guardada en Supabase');
+      if (error) {
+        console.error('Error al guardar la sesión en Supabase:', error.message);
+      } else {
+        console.log('Sesión guardada en Supabase con clientId:', this.clientId);
+      }
+    } catch (err) {
+      console.error('Excepción al intentar guardar la sesión en Supabase:', err.message);
     }
 
     // También guardamos localmente para cumplir con LocalAuth
@@ -49,39 +54,48 @@ class SupabaseLocalAuth extends LocalAuth {
   }
 
   async getAuth() {
-    console.log('Cargando datos de autenticación desde Supabase');
-    const { data, error } = await this.supabase
-      .from('whatsapp_sessions')
-      .select('session_data')
-      .eq('client_id', this.clientId)
-      .single();
-
-    if (error || !data) {
-      console.error('Error al cargar la sesión de Supabase:', error?.message || 'No encontrada');
-      return super.getAuth();
-    }
-
+    console.log('Método getAuth ejecutado. Intentando cargar sesión desde Supabase con clientId:', this.clientId);
     try {
-      const sessionData = JSON.parse(data.session_data);
-      console.log('Sesión cargada desde Supabase');
-      return sessionData;
+      const { data, error } = await this.supabase
+        .from('whatsapp_sessions')
+        .select('session_data')
+        .eq('client_id', this.clientId)
+        .single();
+
+      if (error || !data) {
+        console.error('Error al cargar la sesión de Supabase:', error?.message || 'No encontrada');
+        return super.getAuth();
+      }
+
+      try {
+        const sessionData = JSON.parse(data.session_data);
+        console.log('Sesión cargada desde Supabase con clientId:', this.clientId);
+        return sessionData;
+      } catch (err) {
+        console.error('Error al parsear los datos de la sesión:', err.message);
+        return super.getAuth();
+      }
     } catch (err) {
-      console.error('Error al parsear los datos de la sesión:', err.message);
+      console.error('Excepción al intentar cargar la sesión desde Supabase:', err.message);
       return super.getAuth();
     }
   }
 
   async logout() {
-    console.log('Eliminando sesión de Supabase');
-    const { error } = await this.supabase
-      .from('whatsapp_sessions')
-      .delete()
-      .eq('client_id', this.clientId);
+    console.log('Método logout ejecutado. Eliminando sesión de Supabase con clientId:', this.clientId);
+    try {
+      const { error } = await this.supabase
+        .from('whatsapp_sessions')
+        .delete()
+        .eq('client_id', this.clientId);
 
-    if (error) {
-      console.error('Error al eliminar la sesión de Supabase:', error.message);
-    } else {
-      console.log('Sesión eliminada de Supabase');
+      if (error) {
+        console.error('Error al eliminar la sesión de Supabase:', error.message);
+      } else {
+        console.log('Sesión eliminada de Supabase con clientId:', this.clientId);
+      }
+    } catch (err) {
+      console.error('Excepción al intentar eliminar la sesión de Supabase:', err.message);
     }
 
     await super.logout();
@@ -277,21 +291,40 @@ async function validateAndCorrectResponse(response, tenantId) {
   let parsedResponse;
   let textAfterJson = '';
 
-  try {
-    // Removemos el bloque de código Markdown si existe (```json ... ```)
-    const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
-    if (jsonMatch) {
+  // Intentamos extraer el JSON si está envuelto en un bloque Markdown (```json ... ```)
+  const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
+  if (jsonMatch) {
+    try {
       parsedResponse = JSON.parse(jsonMatch[1]);
-      // Extraemos el texto después del JSON
       textAfterJson = response.slice(jsonMatch[0].length).trim();
-    } else {
-      parsedResponse = JSON.parse(response);
+    } catch (error) {
+      console.error('Error al parsear el JSON dentro del bloque Markdown:', error.message);
+      return {
+        response: { mensaje: response },
+        textAfterJson: '',
+        corrected: false
+      };
     }
-  } catch (error) {
-    console.error('Error al parsear la respuesta de ChatGPT:', error.message);
+  } else {
+    // Si no hay bloque Markdown, intentamos parsear directamente como JSON
+    try {
+      parsedResponse = JSON.parse(response);
+    } catch (error) {
+      // Si falla el parseo, asumimos que es texto plano
+      console.error('Error al parsear la respuesta de ChatGPT como JSON:', error.message);
+      return {
+        response: { mensaje: response },
+        textAfterJson: '',
+        corrected: false
+      };
+    }
+  }
+
+  // Si el JSON tiene un campo "respuesta", lo tratamos como texto plano
+  if (parsedResponse.respuesta) {
     return {
-      response: { mensaje: response },
-      textAfterJson: '',
+      response: { mensaje: parsedResponse.respuesta },
+      textAfterJson: textAfterJson || '',
       corrected: false
     };
   }
@@ -499,8 +532,7 @@ async function sendToChatGPT(message, sessionId, context = {}) {
   try {
     console.log('Enviando a ChatGPT:', message);
     const response = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo', // Cambia a 'gpt-4' si querés mejor precisión
-      // model: 'gpt-4',
+      model: 'gpt-4', // Usamos gpt-4 para mayor precisión
       messages: [
         { role: 'system', content: prompt },
         { role: 'user', content: message }
@@ -535,10 +567,10 @@ async function sendToChatGPT(message, sessionId, context = {}) {
     let formattedResponse = '';
     if (Array.isArray(correctedResponse)) {
       formattedResponse = correctedResponse.map(product => 
-        `Te recomiendo la ${product.nombre}:\nIngredientes: ${product.ingredientes}\nPrecio: ${product.precio}`
+        `Te recomiendo la ${product.nombre} (${product.tamano}):\nIngredientes: ${product.ingredientes}\nPrecio: ${product.precio}`
       ).join('\n\n') + '\n\n¿Querés que te las reserve?';
     } else {
-      formattedResponse = `Te recomiendo la ${correctedResponse.nombre}:\nIngredientes: ${correctedResponse.ingredientes}\nPrecio: ${correctedResponse.precio}\n\n¿Querés que te la reserve?`;
+      formattedResponse = `Te recomiendo la ${correctedResponse.nombre} (${correctedResponse.tamano}):\nIngredientes: ${correctedResponse.ingredientes}\nPrecio: ${correctedResponse.precio}\n\n¿Querés que te la reserve?`;
     }
 
     const finalResponse = textAfterJson ? `${formattedResponse}\n\n${textAfterJson}` : formattedResponse;
