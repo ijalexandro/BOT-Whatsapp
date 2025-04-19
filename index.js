@@ -275,25 +275,17 @@ async function getCatalogData(tenantId) {
 // Función para validar y corregir la respuesta de ChatGPT
 async function validateAndCorrectResponse(response, tenantId) {
   let parsedResponse;
+  let textAfterJson = '';
+
   try {
     // Removemos el bloque de código Markdown si existe (```json ... ```)
     const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
     if (jsonMatch) {
       parsedResponse = JSON.parse(jsonMatch[1]);
       // Extraemos el texto después del JSON
-      const textAfterJson = response.slice(jsonMatch[0].length).trim();
-      return {
-        response: parsedResponse,
-        textAfterJson: textAfterJson || '',
-        corrected: false
-      };
+      textAfterJson = response.slice(jsonMatch[0].length).trim();
     } else {
       parsedResponse = JSON.parse(response);
-      return {
-        response: parsedResponse,
-        textAfterJson: '',
-        corrected: false
-      };
     }
   } catch (error) {
     console.error('Error al parsear la respuesta de ChatGPT:', error.message);
@@ -349,7 +341,7 @@ async function validateAndCorrectResponse(response, tenantId) {
       if (productCorrected) hasCorrections = true;
     }
 
-    return { response: correctedResponse, textAfterJson: '', corrected: hasCorrections };
+    return { response: correctedResponse, textAfterJson, corrected: hasCorrections };
   } else {
     const catalogProduct = catalog.find(p => p.nombre === parsedResponse.nombre && p.tamano === parsedResponse.tamano);
     if (!catalogProduct) {
@@ -381,7 +373,7 @@ async function validateAndCorrectResponse(response, tenantId) {
       hasCorrections = true;
     }
 
-    return { response: correctedResponse, textAfterJson: '', corrected: hasCorrections };
+    return { response: correctedResponse, textAfterJson, corrected: hasCorrections };
   }
 }
 
@@ -453,7 +445,14 @@ async function sendToChatGPT(message, sessionId, context = {}) {
     .join('\n');
 
   const catalog = await getCatalogData(tenantId);
-  const menu = catalog.map(p => `${p.nombre} - ${p.precio}, ${p.tamano} (${p.categoria || 'Sin categoría'})\nIngredientes: ${p.descripcion || 'No especificados'}`).join('\n');
+  const menu = JSON.stringify(catalog.map(p => ({
+    nombre: p.nombre,
+    precio: p.precio,
+    tamano: p.tamano,
+    categoria: p.categoria || 'Sin categoría',
+    ingredientes: p.descripcion || 'No especificados',
+    foto_url: p.foto_url
+  })));
 
   const { data: horarios, error: horariosError } = await supabase
     .from('horarios')
@@ -500,7 +499,8 @@ async function sendToChatGPT(message, sessionId, context = {}) {
   try {
     console.log('Enviando a ChatGPT:', message);
     const response = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-3.5-turbo', // Cambia a 'gpt-4' si querés mejor precisión
+      // model: 'gpt-4',
       messages: [
         { role: 'system', content: prompt },
         { role: 'user', content: message }
@@ -538,7 +538,7 @@ async function sendToChatGPT(message, sessionId, context = {}) {
         `Te recomiendo la ${product.nombre}:\nIngredientes: ${product.ingredientes}\nPrecio: ${product.precio}`
       ).join('\n\n') + '\n\n¿Querés que te las reserve?';
     } else {
-      formattedResponse = `Te recomiendo la ${correctedResponse.nombre}:\nIngredientes: ${product.ingredientes}\nPrecio: ${product.precio}\n\n¿Querés que te la reserve?`;
+      formattedResponse = `Te recomiendo la ${correctedResponse.nombre}:\nIngredientes: ${correctedResponse.ingredientes}\nPrecio: ${correctedResponse.precio}\n\n¿Querés que te la reserve?`;
     }
 
     const finalResponse = textAfterJson ? `${formattedResponse}\n\n${textAfterJson}` : formattedResponse;
