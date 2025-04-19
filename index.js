@@ -415,7 +415,7 @@ async function sendToChatGPT(message, sessionId, context = {}) {
       model: 'gpt-3.5-turbo',
       messages: [
         { role: 'system', content: prompt },
-        { role concierge', content: message }
+        { role: 'user', content: message } // Corrección aquí
       ],
       temperature: 0.0,
       max_tokens: 1000
