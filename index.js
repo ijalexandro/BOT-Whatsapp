@@ -17,40 +17,42 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+// Variable global para almacenar el catálogo
+let globalCatalog = null;
+
+// Cargar el catálogo al iniciar el servidor
+async function loadGlobalCatalog() {
+  try {
+    const { data, error } = await supabase
+      .from('productos')
+      .select('nombre, precio, descripcion, tamano, foto_url, categoria')
+      .eq('tenant_id', '1'); // Ajustá el tenant_id según corresponda
+
+    if (error) {
+      console.error('Error al cargar el catálogo global:', error.message);
+      throw new Error('No se pudo cargar el catálogo global.');
+    }
+
+    // Simplificamos el catálogo para ahorrar tokens, pero incluimos el precio
+    globalCatalog = JSON.stringify(data.map(p => ({
+      nombre: p.nombre,
+      tamano: p.tamano,
+      ingredientes: p.descripcion || 'No especificados',
+      precio: p.precio
+    })));
+    console.log('Catálogo global cargado con éxito:', globalCatalog);
+  } catch (err) {
+    console.error('Excepción al cargar el catálogo global:', err.message);
+    globalCatalog = '[]'; // Fallback en caso de error
+  }
+}
+
 // Estrategia personalizada para almacenar la sesión en Supabase basada en LocalAuth
 class SupabaseLocalAuth extends LocalAuth {
   constructor(clientId, supabase) {
     super({ clientId: clientId || 'default-client', dataPath: '/tmp/.wwebjs_auth' });
     this.supabase = supabase;
     console.log('Inicializando SupabaseLocalAuth con clientId:', clientId);
-  }
-
-  async afterAuth(data) {
-    console.log('Método afterAuth ejecutado. Datos de autenticación:', data);
-    const sessionData = JSON.stringify(data);
-
-    try {
-      const { error } = await this.supabase
-        .from('whatsapp_sessions')
-        .upsert([
-          {
-            client_id: this.clientId,
-            session_data: sessionData,
-            updated_at: new Date().toISOString(),
-          }
-        ], { onConflict: ['client_id'] });
-
-      if (error) {
-        console.error('Error al guardar la sesión en Supabase:', error.message);
-      } else {
-        console.log('Sesión guardada en Supabase con clientId:', this.clientId);
-      }
-    } catch (err) {
-      console.error('Excepción al intentar guardar la sesión en Supabase:', err.message);
-    }
-
-    // También guardamos localmente para cumplir con LocalAuth
-    await super.afterAuth(data);
   }
 
   async getAuth() {
@@ -155,6 +157,9 @@ const chatGPTResponses = new Set();
 const serverStartTime = new Date();
 console.log('Servidor iniciado en:', serverStartTime);
 
+// Cargar el catálogo al iniciar el servidor
+loadGlobalCatalog();
+
 // Palabras clave para detectar si el cliente quiere hablar con una persona
 const humanRequestKeywords = [
   'hablar con una persona',
@@ -176,8 +181,28 @@ client.on('qr_expired', () => {
   console.log('El código QR ha expirado. Generando un nuevo QR...');
 });
 
-client.on('authenticated', () => {
-  console.log('Autenticación exitosa');
+client.on('authenticated', async (session) => {
+  console.log('Autenticación exitosa. Guardando sesión en Supabase...');
+  const sessionData = JSON.stringify(session);
+  try {
+    const { error } = await supabase
+      .from('whatsapp_sessions')
+      .upsert([
+        {
+          client_id: 'my-client',
+          session_data: sessionData,
+          updated_at: new Date().toISOString(),
+        }
+      ], { onConflict: ['client_id'] });
+
+    if (error) {
+      console.error('Error al guardar la sesión en Supabase:', error.message);
+    } else {
+      console.log('Sesión guardada en Supabase con clientId: my-client');
+    }
+  } catch (err) {
+    console.error('Excepción al intentar guardar la sesión en Supabase:', err.message);
+  }
 });
 
 client.on('auth_failure', (msg) => {
@@ -229,7 +254,6 @@ client.on('puppeteer_error', (error) => {
   console.error('Error de Puppeteer:', error);
 });
 
-// Función para obtener el prompt personalizado desde Supabase
 async function getTenantPromptTemplate(tenantId) {
   const { data, error } = await supabase
     .from('tenant_prompts')
@@ -244,7 +268,6 @@ async function getTenantPromptTemplate(tenantId) {
   return data.prompt_template;
 }
 
-// Función para registrar un pedido en la tabla pedidos
 async function registerOrder({ clientNumber, tenantId, productName, price, size, clientName, address, paymentMethod }) {
   const { data, error } = await supabase
     .from('pedidos')
@@ -271,7 +294,6 @@ async function registerOrder({ clientNumber, tenantId, productName, price, size,
   return { success: true, data };
 }
 
-// Función para obtener los datos del catálogo desde Supabase
 async function getCatalogData(tenantId) {
   const { data, error } = await supabase
     .from('productos')
@@ -286,12 +308,10 @@ async function getCatalogData(tenantId) {
   return data;
 }
 
-// Función para validar y corregir la respuesta de ChatGPT
 async function validateAndCorrectResponse(response, tenantId) {
   let parsedResponse;
   let textAfterJson = '';
 
-  // Intentamos extraer el JSON si está envuelto en un bloque Markdown (```json ... ```)
   const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
   if (jsonMatch) {
     try {
@@ -306,11 +326,9 @@ async function validateAndCorrectResponse(response, tenantId) {
       };
     }
   } else {
-    // Si no hay bloque Markdown, intentamos parsear directamente como JSON
     try {
       parsedResponse = JSON.parse(response);
     } catch (error) {
-      // Si falla el parseo, asumimos que es texto plano
       console.error('Error al parsear la respuesta de ChatGPT como JSON:', error.message);
       return {
         response: { mensaje: response },
@@ -320,7 +338,6 @@ async function validateAndCorrectResponse(response, tenantId) {
     }
   }
 
-  // Si el JSON tiene un campo "respuesta", lo tratamos como texto plano
   if (parsedResponse.respuesta) {
     return {
       response: { mensaje: parsedResponse.respuesta },
@@ -410,7 +427,6 @@ async function validateAndCorrectResponse(response, tenantId) {
   }
 }
 
-// Función para enviar a ChatGPT
 async function sendToChatGPT(message, sessionId, context = {}) {
   const tenantId = context.tenantId || 1;
   const clientNumber = (context.from && normalizeWhatsappNumber(context.from)) || 'Desconocido';
@@ -465,7 +481,7 @@ async function sendToChatGPT(message, sessionId, context = {}) {
     .eq('from', clientNumber)
     .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false })
-    .limit(5);
+    .limit(3);
 
   if (messagesError) {
     console.error('Error al obtener historial de conversación:', messagesError.message);
@@ -476,16 +492,6 @@ async function sendToChatGPT(message, sessionId, context = {}) {
     .reverse()
     .map(msg => `${msg.is_outgoing ? 'Asistente' : 'Cliente'}: ${msg.body}`)
     .join('\n');
-
-  const catalog = await getCatalogData(tenantId);
-  const menu = JSON.stringify(catalog.map(p => ({
-    nombre: p.nombre,
-    precio: p.precio,
-    tamano: p.tamano,
-    categoria: p.categoria || 'Sin categoría',
-    ingredientes: p.descripcion || 'No especificados',
-    foto_url: p.foto_url
-  })));
 
   const { data: horarios, error: horariosError } = await supabase
     .from('horarios')
@@ -524,21 +530,48 @@ async function sendToChatGPT(message, sessionId, context = {}) {
   const prompt = promptTemplate
     .replace('{business_name}', businessName)
     .replace('{conversation_history}', conversationHistory || 'No hay historial previo.')
-    .replace('{menu}', menu || 'No hay productos disponibles.')
     .replace('{schedules}', schedules || 'No hay horarios disponibles.')
     .replace('{closed_days}', closedDays || 'No hay días cerrados registrados.')
     .replace('{user_message}', message);
 
   try {
     console.log('Enviando a ChatGPT:', message);
+    const messagesForChatGPT = [];
+
+    // Si es el primer mensaje de la conversación, incluimos el catálogo como mensaje del sistema
+    if (!conversationHistory || conversationHistory === 'No hay historial previo.') {
+      messagesForChatGPT.push({
+        role: 'system',
+        content: `Aquí tienes el catálogo de productos en formato JSON:\n${globalCatalog}\nUsa este catálogo para responder a las solicitudes del usuario.`
+      });
+    }
+
+    // Agregamos el prompt principal como mensaje del sistema
+    messagesForChatGPT.push({
+      role: 'system',
+      content: prompt
+    });
+
+    // Agregamos el mensaje del usuario
+    messagesForChatGPT.push({
+      role: 'user',
+      content: message
+    });
+
+    // Estimación aproximada de tokens (para depuración)
+    const totalPromptText = messagesForChatGPT.map(msg => msg.content).join(' ');
+    const approximateTokens = Math.ceil(totalPromptText.split(' ').length * 1.3); // Aproximación: 1 token ≈ 0.75 palabras
+    console.log(`Tokens aproximados en el prompt: ${approximateTokens}`);
+
+    if (approximateTokens > 7000) {
+      console.warn('Advertencia: El prompt está cerca del límite de tokens de gpt-4 (8192).');
+    }
+
     const response = await openai.chat.completions.create({
-      model: 'gpt-4', // Usamos gpt-4 para mayor precisión
-      messages: [
-        { role: 'system', content: prompt },
-        { role: 'user', content: message }
-      ],
+      model: 'gpt-4',
+      messages: messagesForChatGPT,
       temperature: 0.0,
-      max_tokens: 1000
+      max_tokens: 500
     });
 
     const chatGPTResponse = response.choices[0].message.content;
@@ -583,7 +616,6 @@ async function sendToChatGPT(message, sessionId, context = {}) {
   }
 }
 
-// Funciones auxiliares
 async function getBusinessName(tenantId) {
   const { data, error } = await supabase
     .from('tenants')
@@ -741,12 +773,10 @@ async function checkClientTimeout(clientNumber, tenantId) {
   }
 }
 
-// Handlers
 app.get('/', (req, res) => {
   res.send('¡Servidor funcionando!');
 });
 
-// Eventos WhatsApp
 client.on('message_create', async (message) => {
   const messageId = message.id._serialized;
   if (processedMessages.has(messageId)) {
