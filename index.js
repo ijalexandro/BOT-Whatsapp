@@ -14,7 +14,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Configuración de OpenAI (ChatGPT)
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY // Asegúrate de definir esta variable en tu .env
+  apiKey: process.env.OPENAI_API_KEY
 });
 
 // Configuración de WhatsApp
@@ -213,20 +213,17 @@ async function validateAndCorrectResponse(response, tenantId) {
   } catch (error) {
     console.error('Error al parsear la respuesta de ChatGPT:', error.message);
     return {
-      error: 'Hubo un error al procesar la respuesta. Un agente te va a contactar pronto.',
+      response: { mensaje: response },
       corrected: false
     };
   }
 
-  // Si la respuesta tiene un error, no necesita validación adicional
   if (parsedResponse.error) {
     return { response: parsedResponse, corrected: false };
   }
 
-  // Obtener el catálogo para validar
   const catalog = await getCatalogData(tenantId);
 
-  // Si es un array (combinación de productos), validar cada producto
   if (Array.isArray(parsedResponse)) {
     const correctedResponse = [];
     let hasCorrections = false;
@@ -243,21 +240,18 @@ async function validateAndCorrectResponse(response, tenantId) {
       const correctedProduct = { ...product };
       let productCorrected = false;
 
-      // Validar precio
       if (product.precio !== catalogProduct.precio) {
         console.log(`Corrigiendo precio de ${product.nombre}: ${product.precio} -> ${catalogProduct.precio}`);
         correctedProduct.precio = catalogProduct.precio;
         productCorrected = true;
       }
 
-      // Validar ingredientes
       if (product.ingredientes !== catalogProduct.descripcion) {
         console.log(`Corrigiendo ingredientes de ${product.nombre}: ${product.ingredientes} -> ${catalogProduct.descripcion}`);
         correctedProduct.ingredientes = catalogProduct.descripcion;
         productCorrected = true;
       }
 
-      // Validar foto_url
       if (product.foto_url !== catalogProduct.foto_url) {
         console.log(`Corrigiendo foto_url de ${product.nombre}: ${product.foto_url} -> ${catalogProduct.foto_url}`);
         correctedProduct.foto_url = catalogProduct.foto_url;
@@ -270,7 +264,6 @@ async function validateAndCorrectResponse(response, tenantId) {
 
     return { response: correctedResponse, corrected: hasCorrections };
   } else {
-    // Validar un solo producto
     const catalogProduct = catalog.find(p => p.nombre === parsedResponse.nombre && p.tamano === parsedResponse.tamano);
     if (!catalogProduct) {
       return {
@@ -282,21 +275,18 @@ async function validateAndCorrectResponse(response, tenantId) {
     const correctedResponse = { ...parsedResponse };
     let hasCorrections = false;
 
-    // Validar precio
     if (parsedResponse.precio !== catalogProduct.precio) {
       console.log(`Corrigiendo precio de ${parsedResponse.nombre}: ${parsedResponse.precio} -> ${catalogProduct.precio}`);
       correctedResponse.precio = catalogProduct.precio;
       hasCorrections = true;
     }
 
-    // Validar ingredientes
     if (parsedResponse.ingredientes !== catalogProduct.descripcion) {
       console.log(`Corrigiendo ingredientes de ${parsedResponse.nombre}: ${parsedResponse.ingredientes} -> ${catalogProduct.descripcion}`);
       correctedResponse.ingredientes = catalogProduct.descripcion;
       hasCorrections = true;
     }
 
-    // Validar foto_url
     if (parsedResponse.foto_url !== catalogProduct.foto_url) {
       console.log(`Corrigiendo foto_url de ${parsedResponse.nombre}: ${parsedResponse.foto_url} -> ${catalogProduct.foto_url}`);
       correctedResponse.foto_url = catalogProduct.foto_url;
@@ -312,7 +302,6 @@ async function sendToChatGPT(message, sessionId, context = {}) {
   const tenantId = context.tenantId || 1;
   const clientNumber = (context.from && normalizeWhatsappNumber(context.from)) || 'Desconocido';
 
-  // Verificar si el cliente quiere hablar con una persona
   const messageLower = message.toLowerCase();
   const wantsHuman = humanRequestKeywords.some(keyword => messageLower.includes(keyword));
   if (wantsHuman) {
@@ -322,7 +311,6 @@ async function sendToChatGPT(message, sessionId, context = {}) {
     return { response: 'Un agente te va a contactar en breve, ¿dale?', source: 'system' };
   }
 
-  // Verificar si hay una respuesta manual activa
   const { data: manualResponse, error: manualError } = await supabase
     .from('respuestas_manuales')
     .select('manual_response, last_response_at')
@@ -345,7 +333,6 @@ async function sendToChatGPT(message, sessionId, context = {}) {
     return null;
   }
 
-  // Obtener información del tenant
   const { data: tenant, error: tenantError } = await supabase
     .from('tenants')
     .select('business_name')
@@ -359,7 +346,6 @@ async function sendToChatGPT(message, sessionId, context = {}) {
 
   const businessName = tenant.business_name || 'Nuestro negocio';
 
-  // Obtener historial de la conversación
   const { data: messages, error: messagesError } = await supabase
     .from('messages')
     .select('body, is_outgoing')
@@ -378,11 +364,9 @@ async function sendToChatGPT(message, sessionId, context = {}) {
     .map(msg => `${msg.is_outgoing ? 'Asistente' : 'Cliente'}: ${msg.body}`)
     .join('\n');
 
-  // Obtener el catálogo
   const catalog = await getCatalogData(tenantId);
   const menu = catalog.map(p => `${p.nombre} - ${p.precio}, ${p.tamano} (${p.categoria || 'Sin categoría'})\nIngredientes: ${p.descripcion || 'No especificados'}`).join('\n');
 
-  // Obtener horarios
   const { data: horarios, error: horariosError } = await supabase
     .from('horarios')
     .select('dia_semana, hora_apertura, hora_cierre')
@@ -395,7 +379,6 @@ async function sendToChatGPT(message, sessionId, context = {}) {
 
   const schedules = horarios.map(h => `${h.dia_semana}: ${h.hora_apertura} - ${h.hora_cierre}`).join(', ');
 
-  // Obtener días cerrados
   const { data: diasCerrados, error: diasCerradosError } = await supabase
     .from('dias_cerrados')
     .select('fecha')
@@ -408,7 +391,6 @@ async function sendToChatGPT(message, sessionId, context = {}) {
 
   const closedDays = diasCerrados.map(d => d.fecha).join(', ');
 
-  // Obtener el prompt personalizado
   let promptTemplate;
   try {
     promptTemplate = await getTenantPromptTemplate(tenantId);
@@ -419,7 +401,6 @@ async function sendToChatGPT(message, sessionId, context = {}) {
     return { response: 'No puedo procesar tu pedido ahora. Un agente te va a contactar pronto.', source: 'error' };
   }
 
-  // Construir el prompt dinámico
   const prompt = promptTemplate
     .replace('{business_name}', businessName)
     .replace('{conversation_history}', conversationHistory || 'No hay historial previo.')
@@ -434,7 +415,7 @@ async function sendToChatGPT(message, sessionId, context = {}) {
       model: 'gpt-3.5-turbo',
       messages: [
         { role: 'system', content: prompt },
-        { role: 'user', content: message }
+        { role concierge', content: message }
       ],
       temperature: 0.0,
       max_tokens: 1000
@@ -443,18 +424,25 @@ async function sendToChatGPT(message, sessionId, context = {}) {
     const chatGPTResponse = response.choices[0].message.content;
     console.log('Respuesta de ChatGPT:', chatGPTResponse);
 
-    // Validar y corregir la respuesta
-    const { response: correctedResponse, corrected } = await validateAndCorrectResponse(chatGPTResponse, tenantId);
+    const validationResult = await validateAndCorrectResponse(chatGPTResponse, tenantId);
+    if (!validationResult) {
+      throw new Error('validateAndCorrectResponse devolvió undefined');
+    }
+
+    const { response: correctedResponse, corrected } = validationResult;
 
     if (corrected) {
       console.log('La respuesta de ChatGPT fue corregida automáticamente.');
     }
 
-    if (correctedResponse.error) {
+    if (correctedResponse?.error) {
       return { response: correctedResponse.error, source: 'error' };
     }
 
-    // Formatear la respuesta para el cliente
+    if (correctedResponse.mensaje) {
+      return { response: correctedResponse.mensaje, source: 'chatgpt', jsonResponse: correctedResponse };
+    }
+
     let formattedResponse = '';
     if (Array.isArray(correctedResponse)) {
       formattedResponse = correctedResponse.map(product => 
@@ -518,14 +506,14 @@ async function notifyAdmin(tenantId, clientNumber, message) {
       .eq('tenant_id', tenantId)
       .eq('message', notifMessage)
       .gte('created_at', new Date(Date.now() - 20 * 60 * 1000).toISOString())
-      .single();
+      .limit(1);
 
-    if (notifError && notifError.codebrew !== 'PGRST116') {
+    if (notifError) {
       console.error('Error verificando notificaciones:', notifError.message);
       return;
     }
 
-    if (!existing) {
+    if (!existing || existing.length === 0) {
       const sentMessage = await client.sendMessage(`${normalizedAdminNumber}@c.us`, notifMessage);
       chatGPTResponses.add(sentMessage.id._serialized);
       await supabase.from('notificaciones').insert([{
@@ -551,13 +539,13 @@ async function shouldNotify(clientNumber, tenantId, message) {
     .eq('tenant_id', tenantId)
     .eq('message', message)
     .gte('created_at', new Date(Date.now() - 20 * 60 * 1000).toISOString())
-    .single();
+    .limit(1);
 
   if (error && error.code !== 'PGRST116') {
     console.error('Error verificando notificación:', error.message);
     return false;
   }
-  return !existing;
+  return !existing || existing.length === 0;
 }
 
 async function handleManualResponse(clientNumber, tenantId) {
@@ -762,18 +750,19 @@ client.on('message_create', async (message) => {
         console.log('Respuesta registrada:', savedResponse);
       }
 
-      // Si la respuesta incluye un pedido confirmado, registrarlo
-      if (result.jsonResponse && !result.jsonResponse.error && messageLower.includes('confirmo') || messageLower.includes('sí') || messageLower.includes('si')) {
+      const messageLower = message.body.toLowerCase();
+
+      if (result.jsonResponse && !result.jsonResponse.error && (messageLower.includes('confirmo') || messageLower.includes('sí') || messageLower.includes('si'))) {
         const product = Array.isArray(result.jsonResponse) ? result.jsonResponse[0] : result.jsonResponse;
         await registerOrder({
-          clientNumber: clientNumber,
+          clientNumber: normalizedFrom,
           tenantId: tenantId,
           productName: product.nombre,
           price: parseFloat(product.precio.replace('$ ', '').replace('.', '')),
           size: product.tamano,
-          clientName: 'Cliente', // Esto debería obtenerse del mensaje o historial
-          address: 'Dirección', // Esto debería obtenerse del mensaje o historial
-          paymentMethod: 'Pendiente' // Esto debería obtenerse del mensaje o historial
+          clientName: 'Cliente',
+          address: 'Dirección',
+          paymentMethod: 'Pendiente'
         });
       }
     } else {
