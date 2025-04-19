@@ -1,7 +1,7 @@
 require('dotenv').config();
 
 const express = require('express');
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, AuthStrategy } = require('whatsapp-web.js');
 const { createClient } = require('@supabase/supabase-js');
 const bodyParser = require('body-parser');
 const { OpenAI } = require('openai');
@@ -17,7 +17,78 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// Configuración de WhatsApp
+// Estrategia personalizada para almacenar la sesión en Supabase
+class SupabaseAuth extends AuthStrategy {
+  constructor(clientId, supabase) {
+    super();
+    this.clientId = clientId || 'default-client';
+    this.supabase = supabase;
+  }
+
+  async beforeBrowserInitialized() {
+    console.log('Inicializando SupabaseAuth para clientId:', this.clientId);
+  }
+
+  async afterAuth(data) {
+    console.log('Guardando datos de autenticación en Supabase');
+    const sessionData = JSON.stringify(data);
+
+    const { error } = await this.supabase
+      .from('whatsapp_sessions')
+      .upsert([
+        {
+          client_id: this.clientId,
+          session_data: sessionData,
+          updated_at: new Date().toISOString(),
+        }
+      ], { onConflict: ['client_id'] });
+
+    if (error) {
+      console.error('Error al guardar la sesión en Supabase:', error.message);
+    } else {
+      console.log('Sesión guardada en Supabase');
+    }
+
+    return data;
+  }
+
+  async logout() {
+    console.log('Eliminando sesión de Supabase');
+    const { error } = await this.supabase
+      .from('whatsapp_sessions')
+      .delete()
+      .eq('client_id', this.clientId);
+
+    if (error) {
+      console.error('Error al eliminar la sesión de Supabase:', error.message);
+    } else {
+      console.log('Sesión eliminada de Supabase');
+    }
+  }
+
+  async getAuth() {
+    console.log('Cargando datos de autenticación desde Supabase');
+    const { data, error } = await this.supabase
+      .from('whatsapp_sessions')
+      .select('session_data')
+      .eq('client_id', this.clientId)
+      .single();
+
+    if (error || !data) {
+      console.error('Error al cargar la sesión de Supabase:', error?.message || 'No encontrada');
+      return null;
+    }
+
+    try {
+      return JSON.parse(data.session_data);
+    } catch (err) {
+      console.error('Error al parsear los datos de la sesión:', err.message);
+      return null;
+    }
+  }
+}
+
+// Configuración de WhatsApp con la nueva estrategia de autenticación
 const client = new Client({
   puppeteer: {
     executablePath: undefined,
@@ -50,10 +121,7 @@ const client = new Client({
     ignoreHTTPSErrors: true,
     dumpio: false
   },
-  authStrategy: new LocalAuth({
-    dataPath: './.wwebjs_auth',
-    clientId: 'my-client'
-  }),
+  authStrategy: new SupabaseAuth('my-client', supabase),
   webVersion: '2.2412.54',
   webVersionCache: {
     type: 'remote',
@@ -96,7 +164,6 @@ client.on('qr_expired', () => {
 
 client.on('authenticated', () => {
   console.log('Autenticación exitosa');
-  console.log('Sesión guardada en:', client.options.authStrategy.dataPath);
 });
 
 client.on('auth_failure', (msg) => {
@@ -209,17 +276,36 @@ async function getCatalogData(tenantId) {
 async function validateAndCorrectResponse(response, tenantId) {
   let parsedResponse;
   try {
-    parsedResponse = JSON.parse(response);
+    // Removemos el bloque de código Markdown si existe (```json ... ```)
+    const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
+    if (jsonMatch) {
+      parsedResponse = JSON.parse(jsonMatch[1]);
+      // Extraemos el texto después del JSON
+      const textAfterJson = response.slice(jsonMatch[0].length).trim();
+      return {
+        response: parsedResponse,
+        textAfterJson: textAfterJson || '',
+        corrected: false
+      };
+    } else {
+      parsedResponse = JSON.parse(response);
+      return {
+        response: parsedResponse,
+        textAfterJson: '',
+        corrected: false
+      };
+    }
   } catch (error) {
     console.error('Error al parsear la respuesta de ChatGPT:', error.message);
     return {
       response: { mensaje: response },
+      textAfterJson: '',
       corrected: false
     };
   }
 
   if (parsedResponse.error) {
-    return { response: parsedResponse, corrected: false };
+    return { response: parsedResponse, textAfterJson: '', corrected: false };
   }
 
   const catalog = await getCatalogData(tenantId);
@@ -233,6 +319,7 @@ async function validateAndCorrectResponse(response, tenantId) {
       if (!catalogProduct) {
         return {
           error: `El producto ${product.nombre} no existe en el catálogo.`,
+          textAfterJson: '',
           corrected: false
         };
       }
@@ -262,12 +349,13 @@ async function validateAndCorrectResponse(response, tenantId) {
       if (productCorrected) hasCorrections = true;
     }
 
-    return { response: correctedResponse, corrected: hasCorrections };
+    return { response: correctedResponse, textAfterJson: '', corrected: hasCorrections };
   } else {
     const catalogProduct = catalog.find(p => p.nombre === parsedResponse.nombre && p.tamano === parsedResponse.tamano);
     if (!catalogProduct) {
       return {
         error: `El producto ${parsedResponse.nombre} no existe en el catálogo.`,
+        textAfterJson: '',
         corrected: false
       };
     }
@@ -293,7 +381,7 @@ async function validateAndCorrectResponse(response, tenantId) {
       hasCorrections = true;
     }
 
-    return { response: correctedResponse, corrected: hasCorrections };
+    return { response: correctedResponse, textAfterJson: '', corrected: hasCorrections };
   }
 }
 
@@ -415,7 +503,7 @@ async function sendToChatGPT(message, sessionId, context = {}) {
       model: 'gpt-3.5-turbo',
       messages: [
         { role: 'system', content: prompt },
-        { role: 'user', content: message } // Corrección aquí
+        { role: 'user', content: message }
       ],
       temperature: 0.0,
       max_tokens: 1000
@@ -429,18 +517,19 @@ async function sendToChatGPT(message, sessionId, context = {}) {
       throw new Error('validateAndCorrectResponse devolvió undefined');
     }
 
-    const { response: correctedResponse, corrected } = validationResult;
+    const { response: correctedResponse, textAfterJson, corrected } = validationResult;
 
     if (corrected) {
       console.log('La respuesta de ChatGPT fue corregida automáticamente.');
     }
 
     if (correctedResponse?.error) {
-      return { response: correctedResponse.error, source: 'error' };
+      return { response: correctedResponse.error, source: 'error', textAfterJson: '' };
     }
 
     if (correctedResponse.mensaje) {
-      return { response: correctedResponse.mensaje, source: 'chatgpt', jsonResponse: correctedResponse };
+      const finalResponse = textAfterJson ? `${correctedResponse.mensaje}\n\n${textAfterJson}` : correctedResponse.mensaje;
+      return { response: finalResponse, source: 'chatgpt', jsonResponse: correctedResponse };
     }
 
     let formattedResponse = '';
@@ -452,7 +541,8 @@ async function sendToChatGPT(message, sessionId, context = {}) {
       formattedResponse = `Te recomiendo la ${correctedResponse.nombre}:\nIngredientes: ${correctedResponse.ingredientes}\nPrecio: ${correctedResponse.precio}\n\n¿Querés que te la reserve?`;
     }
 
-    return { response: formattedResponse, source: 'chatgpt', jsonResponse: correctedResponse };
+    const finalResponse = textAfterJson ? `${formattedResponse}\n\n${textAfterJson}` : formattedResponse;
+    return { response: finalResponse, source: 'chatgpt', jsonResponse: correctedResponse };
   } catch (error) {
     console.error('Error al enviar a ChatGPT:', error.message);
     const notifMessage = `Cliente ${clientNumber} no pudo ser atendido por ChatGPT: ${error.message}`;
