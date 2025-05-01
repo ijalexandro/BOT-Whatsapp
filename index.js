@@ -489,6 +489,16 @@ client.on('disconnected', (reason) => {
   client.initialize();
 });
 
+// Nuevo manejador para errores del cliente de WhatsApp
+client.on('error', (error) => {
+  console.error('Error en el cliente de WhatsApp:', error.message);
+  // Opcional: reiniciar el cliente si el error es crítico
+  if (error.message.includes('ENOENT')) {
+    console.log('Error ENOENT detectado, reiniciando cliente...');
+    client.initialize();
+  }
+});
+
 client.on('message_create', async (msg) => {
   const messageId = msg.id._serialized;
   if (processedMessages.has(messageId)) {
@@ -708,8 +718,20 @@ client.on('message_create', async (msg) => {
   await checkClientTimeout(msg.from, tenantId);
 });
 
-// Inicializar servidor
-client.initialize();
+// Inicializar servidor con manejo de errores
+client.initialize().catch((error) => {
+  console.error('Error al inicializar el cliente de WhatsApp:', error.message);
+});
+
 app.listen(port, () => {
   console.log(`🚀 Servidor Express corriendo en puerto ${port}`);
+});
+
+// Manejo de errores globales para evitar que el proceso se caiga
+process.on('uncaughtException', (error) => {
+  console.error('Excepción no manejada:', error.message);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Rechazo no manejado en:', promise, 'Razón:', reason);
 });
