@@ -2,7 +2,8 @@ const { RemoteAuth } = require('whatsapp-web.js');
 const SupabaseStore = require('./supabaseStore');
 
 class SupabaseRemoteAuth extends RemoteAuth {
-  constructor(client, clientId, supabase) {
+  constructor(client, options) {
+    const { clientId, supabase } = options;
     const store = new SupabaseStore(supabase, clientId);
     super(client, store, {
       clientId,
