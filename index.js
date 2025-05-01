@@ -1,12 +1,12 @@
 require('dotenv').config();
 
 const express = require('express');
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client } = require('whatsapp-web.js');
 const { createClient } = require('@supabase/supabase-js');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const qrcode = require('qrcode-terminal');
-const fs = require('fs'); // Añadimos fs para manejar el directorio
+const SupabaseRemoteAuth = require('./supabaseRemoteAuth'); // Importamos la nueva clase
 
 // Supabase config
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
@@ -35,18 +35,7 @@ async function loadGlobalCatalog() {
   }
 }
 
-// Definir el directorio para la sesión
-const sessionPath = '/tmp/.wwebjs_auth';
-
-// Crear el directorio si no existe
-if (!fs.existsSync(sessionPath)) {
-  fs.mkdirSync(sessionPath, { recursive: true });
-  console.log('Directorio /tmp/.wwebjs_auth creado');
-} else {
-  console.log('Directorio /tmp/.wwebjs_auth ya existe');
-}
-
-// Configurar cliente WhatsApp con LocalAuth
+// Configurar cliente WhatsApp con SupabaseRemoteAuth
 const client = new Client({
   puppeteer: {
     executablePath: undefined,
@@ -79,7 +68,7 @@ const client = new Client({
     ignoreHTTPSErrors: true,
     dumpio: true // Habilitamos dumpio para ver los logs de Puppeteer
   },
-  authStrategy: new LocalAuth({ clientId: 'my-client', dataPath: sessionPath }),
+  authStrategy: new SupabaseRemoteAuth('my-client', supabase), // Usamos SupabaseRemoteAuth
   // Usamos la versión predeterminada de WhatsApp
 });
 
@@ -457,14 +446,7 @@ client.on('qr', (qr) => {
 });
 
 client.on('authenticated', async () => {
-  console.log('✅ Autenticado en WhatsApp con éxito.');
-  // Verificar si los archivos de sesión se generaron
-  try {
-    const sessionFiles = fs.readdirSync(sessionPath);
-    console.log('Archivos en /tmp/.wwebjs_auth:', sessionFiles);
-  } catch (error) {
-    console.error('Error al leer el directorio de sesión:', error.message);
-  }
+  console.log('✅ Autenticado en WhatsApp con éxito. La sesión debería estar guardada en Supabase.');
 });
 
 client.on('auth_failure', (msg) => {
