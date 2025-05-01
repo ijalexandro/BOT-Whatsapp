@@ -1,8 +1,8 @@
 const { RemoteAuth } = require('whatsapp-web.js');
 
 class SupabaseRemoteAuth extends RemoteAuth {
-  constructor(clientId, supabase) {
-    super(clientId);
+  constructor(clientId, supabase, backupSyncIntervalMs = 60000) {
+    super(clientId, backupSyncIntervalMs); // Pasamos el intervalo de sincronización
     this.supabase = supabase; // Cliente de Supabase inicializado previamente
   }
 
