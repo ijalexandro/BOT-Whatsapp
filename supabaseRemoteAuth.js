@@ -4,10 +4,11 @@ const SupabaseStore = require('./supabaseStore');
 class SupabaseRemoteAuth extends RemoteAuth {
   constructor(clientId, supabase) {
     const store = new SupabaseStore(supabase, clientId);
-    super({
-      clientId: clientId,
-      backupSyncIntervalMs: 60000, // Intervalo mínimo de 1 minuto
-      store: store, // Pasamos el store personalizado
+    super(client, store, {
+      clientId,
+      backupSyncIntervalMs: 300000, // 5 minutos
+      // Deshabilitamos el respaldo local
+      dataPath: null // Esto debería evitar que RemoteAuth intente usar un archivo local
     });
   }
 }
