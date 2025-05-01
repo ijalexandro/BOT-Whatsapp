@@ -18,19 +18,24 @@ class SupabaseStore {
 
     if (error || !data) {
       console.log('No se encontró sesión previa en Supabase:', error?.message || 'Sin datos');
-      return null;
+      return null; // Devolvemos null si no hay sesión
     }
 
-    console.log('Sesión encontrada en Supabase:', data.session_data);
-    return JSON.parse(data.session_data);
+    try {
+      const sessionData = JSON.parse(data.session_data);
+      console.log('Sesión encontrada en Supabase:', sessionData);
+      // Devolvemos un objeto vacío si la sesión es solo un marcador
+      return sessionData.session ? sessionData : {};
+    } catch (parseError) {
+      console.error('Error al parsear la sesión desde Supabase:', parseError.message);
+      return null;
+    }
   }
 
   async save(session) {
     console.log('Guardando sesión para clientId:', this.clientId);
     console.log('Datos de la sesión a guardar:', session);
-    const sessionData = JSON.stringify(session);
-
-    // Verificar si la sesión ya existe
+    const sessionData = JSON.stringify({ session: session }); // Guardamos como { session: [datos] }
     const { data: existingSession, error: checkError } = await this.supabase
       .from('whatsapp_sessions')
       .select('client_id')
@@ -43,7 +48,6 @@ class SupabaseStore {
     }
 
     if (existingSession) {
-      // Si la sesión ya existe, actualizamos la fila existente
       console.log('Sesión ya existe, actualizando...');
       const { error: updateError } = await this.supabase
         .from('whatsapp_sessions')
@@ -57,7 +61,6 @@ class SupabaseStore {
         console.log('Sesión actualizada en Supabase con éxito.');
       }
     } else {
-      // Si no existe, insertamos una nueva fila
       console.log('Sesión no existe, insertando nueva...');
       const { error: insertError } = await this.supabase
         .from('whatsapp_sessions')
