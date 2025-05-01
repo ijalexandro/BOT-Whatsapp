@@ -24,7 +24,6 @@ class SupabaseStore {
     try {
       const sessionData = JSON.parse(data.session_data);
       console.log('Sesión encontrada en Supabase:', sessionData);
-      // Devolvemos un objeto vacío si la sesión es solo un marcador
       return sessionData.session ? sessionData : {};
     } catch (parseError) {
       console.error('Error al parsear la sesión desde Supabase:', parseError.message);
@@ -35,7 +34,7 @@ class SupabaseStore {
   async save(session) {
     console.log('Guardando sesión para clientId:', this.clientId);
     console.log('Datos de la sesión a guardar:', session);
-    const sessionData = JSON.stringify({ session: session }); // Guardamos como { session: [datos] }
+    const sessionData = JSON.stringify({ session: session });
     const { data: existingSession, error: checkError } = await this.supabase
       .from('whatsapp_sessions')
       .select('client_id')
