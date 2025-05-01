@@ -61,8 +61,8 @@ const client = new Client({
       '--no-default-browser-check',
       '--no-pings',
       '--enable-logging',
-      '--v=1',
-      '--single-process'
+      '--v=1'
+      // Eliminamos --single-process
     ],
     headless: 'new',
     ignoreHTTPSErrors: true,
