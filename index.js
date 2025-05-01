@@ -73,9 +73,10 @@ class SupabaseLocalAuth extends LocalAuth {
   async saveAuth(session) {
     console.log('Método saveAuth ejecutado. Guardando sesión en Supabase con clientId:', this.clientId);
     try {
-      // Validar que session exista y tenga datos
+      // Validar que session exista
       if (!session) {
         console.error('No se puede guardar la sesión: session es null o undefined');
+        console.log('Contenido de session:', session);
         return;
       }
 
@@ -83,13 +84,14 @@ class SupabaseLocalAuth extends LocalAuth {
       const requiredFields = ['creds', 'keys'];
       const hasRequiredFields = requiredFields.every(field => session[field] !== undefined);
       if (!hasRequiredFields) {
-        console.error('No se puede guardar la sesión: session no tiene los campos requeridos:', JSON.stringify(session));
+        console.error('No se puede guardar la sesión: session no tiene los campos requeridos:', JSON.stringify(session, null, 2));
         return;
       }
 
       const sessionData = JSON.stringify(session);
       if (!sessionData || sessionData === '{}') {
         console.error('No se puede guardar la sesión: sessionData está vacío');
+        console.log('Contenido de sessionData:', sessionData);
         return;
       }
 
@@ -393,6 +395,12 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
       .map(msg => `${msg.is_outgoing ? 'Asistente' : 'Cliente'}: ${msg.body}`)
       .join('\n');
 
+    console.log('Enviando solicitud a n8n:', {
+      message,
+      clientNumber: normalizeWhatsappNumber(clientNumber),
+      conversationHistory: conversationHistory || 'No hay historial previo.'
+    });
+
     const response = await axios.post(process.env.N8N_WEBHOOK_URL, {
       message,
       clientNumber: normalizeWhatsappNumber(clientNumber),
@@ -400,6 +408,7 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
       // No enviamos globalCatalog, n8n debe manejarlo
     });
 
+    console.log('Respuesta recibida de n8n:', response.data);
     return response.data;
   } catch (error) {
     console.error('Error enviando a n8n:', error.message);
@@ -545,6 +554,7 @@ client.on('qr', (qr) => {
 
 client.on('authenticated', async (session) => {
   console.log('✅ Autenticado en WhatsApp. Guardando sesión...');
+  console.log('Contenido de session en evento authenticated:', JSON.stringify(session, null, 2));
   try {
     await client.authStrategy.saveAuth(session);
   } catch (err) {
