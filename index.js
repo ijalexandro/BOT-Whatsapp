@@ -6,6 +6,7 @@ const { createClient } = require('@supabase/supabase-js');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const qrcode = require('qrcode-terminal');
+const fs = require('fs'); // Añadimos fs para manejar el directorio
 
 // Supabase config
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
@@ -32,6 +33,17 @@ async function loadGlobalCatalog() {
     console.error('Excepción al cargar el catálogo global:', err.message);
     globalCatalog = [];
   }
+}
+
+// Definir el directorio para la sesión
+const sessionPath = '/tmp/.wwebjs_auth';
+
+// Crear el directorio si no existe
+if (!fs.existsSync(sessionPath)) {
+  fs.mkdirSync(sessionPath, { recursive: true });
+  console.log('Directorio /tmp/.wwebjs_auth creado');
+} else {
+  console.log('Directorio /tmp/.wwebjs_auth ya existe');
 }
 
 // Configurar cliente WhatsApp con LocalAuth
@@ -67,7 +79,7 @@ const client = new Client({
     ignoreHTTPSErrors: true,
     dumpio: true // Habilitamos dumpio para ver los logs de Puppeteer
   },
-  authStrategy: new LocalAuth({ clientId: 'my-client', dataPath: '/tmp/.wwebjs_auth' }),
+  authStrategy: new LocalAuth({ clientId: 'my-client', dataPath: sessionPath }),
   // Usamos la versión predeterminada de WhatsApp
 });
 
@@ -212,7 +224,7 @@ async function validateAndCorrectResponse(response, tenantId) {
 
     if (parsedResponse.ingredientes !== catalogProduct.descripcion) {
       console.log(`Corrigiendo ingredientes de ${parsedResponse.nombre}: ${parsedResponse.ingredientes} -> ${catalogProduct.descripcion}`);
-      correctedProduct.ingredientes = catalogProduct.descripcion;
+      correctedResponse.ingredientes = catalogProduct.descripcion;
       hasCorrections = true;
     }
 
@@ -444,11 +456,15 @@ client.on('qr', (qr) => {
   console.log('Podés copiarlo y usar un generador QR como https://www.qr-code-generator.com/');
 });
 
-client.on('authenticated', async (session) => {
-  console.log('✅ Autenticado en WhatsApp. Guardando sesión...');
-  console.log('Contenido de session en evento authenticated:', JSON.stringify(session, null, 2));
-  // Con LocalAuth, la sesión se guarda automáticamente en el sistema de archivos
-  console.log('Sesión guardada automáticamente por LocalAuth en /tmp/.wwebjs_auth');
+client.on('authenticated', async () => {
+  console.log('✅ Autenticado en WhatsApp con éxito.');
+  // Verificar si los archivos de sesión se generaron
+  try {
+    const sessionFiles = fs.readdirSync(sessionPath);
+    console.log('Archivos en /tmp/.wwebjs_auth:', sessionFiles);
+  } catch (error) {
+    console.error('Error al leer el directorio de sesión:', error.message);
+  }
 });
 
 client.on('auth_failure', (msg) => {
