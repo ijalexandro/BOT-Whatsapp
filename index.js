@@ -36,11 +36,6 @@ async function loadGlobalCatalog() {
 }
 
 // Configurar cliente WhatsApp con SupabaseRemoteAuth
-const authStrategy = new SupabaseRemoteAuth(null, {
-  clientId: 'my-client',
-  supabase: supabase
-});
-
 const client = new Client({
   puppeteer: {
     executablePath: undefined,
@@ -72,7 +67,10 @@ const client = new Client({
     ignoreHTTPSErrors: true,
     dumpio: true // Habilitamos dumpio para ver los logs de Puppeteer
   },
-  authStrategy: authStrategy,
+  authStrategy: new SupabaseRemoteAuth(null, {
+    clientId: 'my-client',
+    supabase: supabase
+  }),
   // Usamos la versión predeterminada de WhatsApp
 });
 
