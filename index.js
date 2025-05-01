@@ -4,24 +4,52 @@ const express = require('express');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { createClient } = require('@supabase/supabase-js');
 const bodyParser = require('body-parser');
-const axios = require('axios'); // ✅ Para conexión con n8n
-const qrcode = require('qrcode-terminal'); // ✅ Para mostrar QR correctamente
+const axios = require('axios');
+const qrcode = require('qrcode-terminal');
 
-// Configuración de Supabase
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Supabase
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// Configuración de WhatsApp
+// Estrategia de sesión persistente en Supabase
+class SupabaseLocalAuth extends LocalAuth {
+  constructor(clientId, supabase) {
+    super({ clientId: clientId || 'default-client', dataPath: '/tmp/.wwebjs_auth' });
+    this.supabase = supabase;
+  }
+
+  async getAuth() {
+    try {
+      const { data, error } = await this.supabase
+        .from('whatsapp_sessions')
+        .select('session_data')
+        .eq('client_id', this.clientId)
+        .single();
+
+      if (error || !data) return super.getAuth();
+      return JSON.parse(data.session_data);
+    } catch {
+      return super.getAuth();
+    }
+  }
+
+  async logout() {
+    await this.supabase
+      .from('whatsapp_sessions')
+      .delete()
+      .eq('client_id', this.clientId);
+    await super.logout();
+  }
+}
+
+// WhatsApp client
 const client = new Client({
   puppeteer: {
-    executablePath: undefined,
     args: ['--no-sandbox'],
     headless: 'new',
     ignoreHTTPSErrors: true,
     dumpio: false
   },
-  authStrategy: new LocalAuth({ clientId: 'my-client' }),
+  authStrategy: new SupabaseLocalAuth('my-client', supabase),
   webVersionCache: {
     type: 'remote',
     remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
@@ -32,35 +60,37 @@ const app = express();
 const port = process.env.PORT || 3000;
 app.use(bodyParser.json());
 
-// Función para normalizar números de WhatsApp
+// Utilidad
 function normalizeWhatsappNumber(number) {
   return number ? number.replace('@c.us', '').trim() : null;
 }
 
-// Función para enviar mensaje a n8n
+// Enviar mensaje a n8n
 async function sendMessageToN8n(message, clientNumber) {
   try {
-    const response = await axios.post(`${process.env.N8N_WEBHOOK_URL}`, {
-      message: message,
+    const response = await axios.post(process.env.N8N_WEBHOOK_URL, {
+      message,
       clientNumber: normalizeWhatsappNumber(clientNumber)
     });
     return response.data;
   } catch (error) {
-    console.error('Error enviando mensaje a n8n:', error.message);
-    return { error: true, message: 'No se pudo procesar el mensaje' };
+    console.error('Error enviando a n8n:', error.message);
+    return { error: true, message: 'Error procesando el mensaje' };
   }
 }
 
-// Eventos de WhatsApp
+// Eventos
 client.on('qr', (qr) => {
-  console.log('📱 Escaneá este código QR desde WhatsApp Web:');
-  console.log('\n', qr, '\n');
-  console.log('También podés copiarlo en un generador de QR como https://www.qr-code-generator.com/');
+  console.log('📱 Escaneá este QR desde WhatsApp:');
   qrcode.generate(qr, { small: true });
 });
 
-client.on('authenticated', () => {
-  console.log('✅ Autenticado en WhatsApp.');
+client.on('authenticated', async (session) => {
+  console.log('✅ Autenticado. Guardando sesión...');
+  const sessionData = JSON.stringify(session);
+  await supabase
+    .from('whatsapp_sessions')
+    .upsert([{ client_id: 'my-client', session_data: sessionData, updated_at: new Date().toISOString() }], { onConflict: ['client_id'] });
 });
 
 client.on('auth_failure', (msg) => {
@@ -68,20 +98,22 @@ client.on('auth_failure', (msg) => {
 });
 
 client.on('ready', () => {
-  console.log('✅ WhatsApp client listo.');
+  console.log('✅ Cliente de WhatsApp listo');
 });
 
 client.on('disconnected', (reason) => {
-  console.log('🔌 Cliente desconectado:', reason);
+  console.log('⚠️ Cliente desconectado:', reason);
   client.initialize();
 });
 
+// Recepción de mensajes
 client.on('message_create', async (msg) => {
   if (msg.fromMe) return;
 
-  console.log('💬 Nuevo mensaje recibido:', msg.body);
+  console.log('📩 Mensaje recibido:', msg.body);
+  const clientNumber = normalizeWhatsappNumber(msg.from);
 
-  // Guardar mensaje entrante en Supabase
+  // Guardar en Supabase
   await supabase.from('messages').insert([
     {
       body: msg.body,
@@ -92,13 +124,13 @@ client.on('message_create', async (msg) => {
     }
   ]);
 
-  // Enviar mensaje a n8n
+  // Enviar a n8n
   const response = await sendMessageToN8n(msg.body, msg.from);
 
   if (response && response.reply) {
     await client.sendMessage(msg.from, response.reply);
 
-    // Registrar respuesta enviada en Supabase
+    // Guardar respuesta
     await supabase.from('messages').insert([
       {
         body: response.reply,
@@ -113,8 +145,9 @@ client.on('message_create', async (msg) => {
   }
 });
 
-// Inicializar servidor Express y WhatsApp
+// Iniciar
 client.initialize();
 app.listen(port, () => {
-  console.log(`🚀 Servidor corriendo en el puerto ${port}`);
+  console.log(`🚀 Servidor corriendo en puerto ${port}`);
 });
+
