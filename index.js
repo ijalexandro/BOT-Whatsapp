@@ -65,10 +65,10 @@ const client = new Client({
     ],
     headless: 'new',
     ignoreHTTPSErrors: true,
-    dumpio: false
+    dumpio: true // Habilitamos dumpio para ver los logs de Puppeteer
   },
   authStrategy: new LocalAuth({ clientId: 'my-client', dataPath: '/tmp/.wwebjs_auth' }),
-  // Eliminamos webVersion y webVersionCache para usar la versión predeterminada de WhatsApp
+  // Usamos la versión predeterminada de WhatsApp
 });
 
 const app = express();
@@ -212,7 +212,7 @@ async function validateAndCorrectResponse(response, tenantId) {
 
     if (parsedResponse.ingredientes !== catalogProduct.descripcion) {
       console.log(`Corrigiendo ingredientes de ${parsedResponse.nombre}: ${parsedResponse.ingredientes} -> ${catalogProduct.descripcion}`);
-      correctedResponse.ingredientes = catalogProduct.descripcion;
+      correctedProduct.ingredientes = catalogProduct.descripcion;
       hasCorrections = true;
     }
 
@@ -355,7 +355,7 @@ async function notifyAdmin(tenantId, clientNumber, message) {
         tenant_id: tenantId,
         message: notifMessage
       }]);
-      10console.log('Notificación enviada');
+      console.log('Notificación enviada');
     } else {
       console.log('Notificación ya enviada recientemente');
     }
