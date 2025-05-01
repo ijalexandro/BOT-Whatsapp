@@ -29,18 +29,46 @@ class SupabaseStore {
     console.log('Guardando sesión para clientId:', this.clientId);
     console.log('Datos de la sesión a guardar:', session);
     const sessionData = JSON.stringify(session);
-    const { error } = await this.supabase
-      .from('whatsapp_sessions')
-      .upsert({
-        client_id: this.clientId,
-        session_data: sessionData,
-      });
 
-    if (error) {
-      console.error('Error al guardar la sesión en Supabase:', error.message);
-      throw new Error(`No se pudo guardar la sesión: ${error.message}`);
+    // Verificar si la sesión ya existe
+    const { data: existingSession, error: checkError } = await this.supabase
+      .from('whatsapp_sessions')
+      .select('client_id')
+      .eq('client_id', this.clientId)
+      .single();
+
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error('Error al verificar la existencia de la sesión antes de guardar:', checkError.message);
+      throw new Error(`No se pudo verificar la sesión: ${checkError.message}`);
+    }
+
+    if (existingSession) {
+      // Si la sesión ya existe, actualizamos la fila existente
+      console.log('Sesión ya existe, actualizando...');
+      const { error: updateError } = await this.supabase
+        .from('whatsapp_sessions')
+        .update({ session_data: sessionData })
+        .eq('client_id', this.clientId);
+
+      if (updateError) {
+        console.error('Error al actualizar la sesión en Supabase:', updateError.message);
+        throw new Error(`No se pudo actualizar la sesión: ${updateError.message}`);
+      } else {
+        console.log('Sesión actualizada en Supabase con éxito.');
+      }
     } else {
-      console.log('Sesión guardada en Supabase con éxito.');
+      // Si no existe, insertamos una nueva fila
+      console.log('Sesión no existe, insertando nueva...');
+      const { error: insertError } = await this.supabase
+        .from('whatsapp_sessions')
+        .insert({ client_id: this.clientId, session_data: sessionData });
+
+      if (insertError) {
+        console.error('Error al insertar la sesión en Supabase:', insertError.message);
+        throw new Error(`No se pudo insertar la sesión: ${insertError.message}`);
+      } else {
+        console.log('Sesión insertada en Supabase con éxito.');
+      }
     }
   }
 
