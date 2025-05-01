@@ -34,111 +34,7 @@ async function loadGlobalCatalog() {
   }
 }
 
-// Autenticación con sesión guardada en Supabase
-class SupabaseLocalAuth extends LocalAuth {
-  constructor(clientId, supabase) {
-    super({ clientId: clientId || 'default-client', dataPath: '/tmp/.wwebjs_auth' });
-    this.supabase = supabase;
-    console.log('Inicializando SupabaseLocalAuth con clientId:', clientId);
-  }
-
-  async getAuth() {
-    console.log('Método getAuth ejecutado. Intentando cargar sesión desde Supabase con clientId:', this.clientId);
-    try {
-      const { data, error } = await this.supabase
-        .from('whatsapp_sessions')
-        .select('session_data')
-        .eq('client_id', this.clientId)
-        .single();
-
-      if (error || !data) {
-        console.error('Error al cargar la sesión de Supabase:', error?.message || 'No encontrada');
-        return super.getAuth();
-      }
-
-      try {
-        const sessionData = JSON.parse(data.session_data);
-        console.log('Sesión cargada desde Supabase con clientId:', this.clientId);
-        return sessionData;
-      } catch (err) {
-        console.error('Error al parsear los datos de la sesión:', err.message);
-        return super.getAuth();
-      }
-    } catch (err) {
-      console.error('Excepción al intentar cargar la sesión desde Supabase:', err.message);
-      return super.getAuth();
-    }
-  }
-
-  async saveAuth(session) {
-    console.log('Método saveAuth ejecutado. Guardando sesión en Supabase con clientId:', this.clientId);
-    try {
-      // Validar que session exista
-      if (!session) {
-        console.error('No se puede guardar la sesión: session es null o undefined');
-        console.log('Contenido de session:', session);
-        return;
-      }
-
-      // Verificar que session tenga las propiedades esperadas
-      const requiredFields = ['creds', 'keys'];
-      const hasRequiredFields = requiredFields.every(field => session[field] !== undefined);
-      if (!hasRequiredFields) {
-        console.error('No se puede guardar la sesión: session no tiene los campos requeridos:', JSON.stringify(session, null, 2));
-        return;
-      }
-
-      const sessionData = JSON.stringify(session);
-      if (!sessionData || sessionData === '{}') {
-        console.error('No se puede guardar la sesión: sessionData está vacío');
-        console.log('Contenido de sessionData:', sessionData);
-        return;
-      }
-
-      console.log('Datos de la sesión a guardar:', sessionData);
-
-      const { error } = await this.supabase
-        .from('whatsapp_sessions')
-        .upsert([
-          {
-            client_id: this.clientId,
-            session_data: sessionData,
-            updated_at: new Date().toISOString(),
-          }
-        ], { onConflict: ['client_id'] });
-
-      if (error) {
-        console.error('Error al guardar la sesión en Supabase:', error.message);
-      } else {
-        console.log('Sesión guardada correctamente en Supabase con clientId:', this.clientId);
-      }
-    } catch (err) {
-      console.error('Excepción al intentar guardar la sesión en Supabase:', err.message);
-    }
-  }
-
-  async logout() {
-    console.log('Método logout ejecutado. Eliminando sesión de Supabase con clientId:', this.clientId);
-    try {
-      const { error } = await this.supabase
-        .from('whatsapp_sessions')
-        .delete()
-        .eq('client_id', this.clientId);
-
-      if (error) {
-        console.error('Error al eliminar la sesión de Supabase:', error.message);
-      } else {
-        console.log('Sesión eliminada de Supabase con clientId:', this.clientId);
-      }
-    } catch (err) {
-      console.error('Excepción al intentar eliminar la sesión de Supabase:', err.message);
-    }
-
-    await super.logout();
-  }
-}
-
-// Configurar cliente WhatsApp
+// Configurar cliente WhatsApp con LocalAuth
 const client = new Client({
   puppeteer: {
     executablePath: undefined,
@@ -171,12 +67,8 @@ const client = new Client({
     ignoreHTTPSErrors: true,
     dumpio: false
   },
-  authStrategy: new SupabaseLocalAuth('my-client', supabase),
-  webVersion: '2.2412.54',
-  webVersionCache: {
-    type: 'remote',
-    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
-  }
+  authStrategy: new LocalAuth({ clientId: 'my-client', dataPath: '/tmp/.wwebjs_auth' }),
+  // Eliminamos webVersion y webVersionCache para usar la versión predeterminada de WhatsApp
 });
 
 const app = express();
@@ -463,7 +355,7 @@ async function notifyAdmin(tenantId, clientNumber, message) {
         tenant_id: tenantId,
         message: notifMessage
       }]);
-      console.log('Notificación enviada');
+      10console.log('Notificación enviada');
     } else {
       console.log('Notificación ya enviada recientemente');
     }
@@ -555,11 +447,8 @@ client.on('qr', (qr) => {
 client.on('authenticated', async (session) => {
   console.log('✅ Autenticado en WhatsApp. Guardando sesión...');
   console.log('Contenido de session en evento authenticated:', JSON.stringify(session, null, 2));
-  try {
-    await client.authStrategy.saveAuth(session);
-  } catch (err) {
-    console.error('Excepción al intentar guardar la sesión en Supabase:', err.message);
-  }
+  // Con LocalAuth, la sesión se guarda automáticamente en el sistema de archivos
+  console.log('Sesión guardada automáticamente por LocalAuth en /tmp/.wwebjs_auth');
 });
 
 client.on('auth_failure', (msg) => {
