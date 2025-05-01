@@ -7,10 +7,10 @@ const bodyParser = require('body-parser');
 const axios = require('axios');
 const qrcode = require('qrcode-terminal');
 
-// Configuración de Supabase
+// Supabase config
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// Estrategia de autenticación personalizada que guarda en Supabase
+// Autenticación con sesión guardada en Supabase
 class SupabaseLocalAuth extends LocalAuth {
   constructor(clientId, supabase) {
     super({ clientId: clientId || 'default-client', dataPath: '/tmp/.wwebjs_auth' });
@@ -41,11 +41,11 @@ class SupabaseLocalAuth extends LocalAuth {
   }
 }
 
-// Inicializar WhatsApp
+// Configurar cliente WhatsApp
 const client = new Client({
   puppeteer: {
     args: ['--no-sandbox'],
-    headless: 'new'
+    headless: 'new',
   },
   authStrategy: new SupabaseLocalAuth('my-client', supabase),
   webVersionCache: {
@@ -79,8 +79,9 @@ async function sendMessageToN8n(message, clientNumber) {
 
 // Eventos de WhatsApp
 client.on('qr', (qr) => {
-  console.log('📱 Escaneá este código QR desde WhatsApp:');
-  qrcode.generate(qr, { small: true });
+  console.log('\n📱 Escaneá este código QR desde WhatsApp Web:');
+  console.log('\n' + qr + '\n');
+  console.log('Podés copiarlo y usar un generador QR como https://www.qr-code-generator.com/');
 });
 
 client.on('authenticated', async (session) => {
@@ -112,7 +113,7 @@ client.on('message_create', async (msg) => {
 
   console.log('📨 Mensaje recibido:', msg.body);
 
-  // Guardar mensaje entrante
+  // Guardar mensaje entrante en Supabase
   await supabase.from('messages').insert([{
     body: msg.body,
     from: msg.from,
@@ -121,13 +122,13 @@ client.on('message_create', async (msg) => {
     created_at: new Date().toISOString()
   }]);
 
-  // Enviar a n8n
+  // Enviar mensaje a n8n
   const response = await sendMessageToN8n(msg.body, msg.from);
 
   if (response && response.reply) {
     await client.sendMessage(msg.from, response.reply);
 
-    // Guardar respuesta
+    // Guardar respuesta enviada
     await supabase.from('messages').insert([{
       body: response.reply,
       from: msg.from,
@@ -140,8 +141,8 @@ client.on('message_create', async (msg) => {
   }
 });
 
+// Inicializar servidor
 client.initialize();
-
 app.listen(port, () => {
   console.log(`🚀 Servidor Express corriendo en puerto ${port}`);
 });
