@@ -4,10 +4,9 @@ class SupabaseStore {
     this.clientId = clientId;
   }
 
-  // Método para inicializar la conexión (puede ser vacío si no necesitamos lógica adicional)
+  // Método para inicializar la conexión
   async connect() {
     console.log('Conectando SupabaseStore para clientId:', this.clientId);
-    // No necesitamos lógica adicional porque Supabase ya está inicializado
   }
 
   // Método para obtener la sesión desde Supabase
@@ -43,12 +42,12 @@ class SupabaseStore {
     }
   }
 
-  // Método para extraer la sesión (similar a getSession, usado en ciertos casos)
+  // Método para extraer la sesión
   async extract() {
     return this.getSession();
   }
 
-  // Método para eliminar la sesión (opcional, pero lo implementamos por completitud)
+  // Método para eliminar la sesión
   async remove() {
     const { error } = await this.supabase
       .from('whatsapp_sessions')
@@ -60,6 +59,25 @@ class SupabaseStore {
     } else {
       console.log('Sesión eliminada de Supabase con éxito.');
     }
+  }
+
+  // Nuevo método para verificar si la sesión existe
+  async sessionExists() {
+    const { data, error } = await this.supabase
+      .from('whatsapp_sessions')
+      .select('client_id')
+      .eq('client_id', this.clientId)
+      .single();
+
+    if (error && error.code === 'PGRST116') {
+      // PGRST116 indica que no se encontró la fila (no existe)
+      return false;
+    } else if (error) {
+      console.error('Error al verificar la existencia de la sesión:', error.message);
+      return false;
+    }
+
+    return !!data; // Devuelve true si hay datos, false si no
   }
 }
 
