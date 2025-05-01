@@ -721,6 +721,15 @@ client.on('message_create', async (msg) => {
 // Inicializar servidor con manejo de errores
 client.initialize().catch((error) => {
   console.error('Error al inicializar el cliente de WhatsApp:', error.message);
+  if (error.message.includes('ENOENT')) {
+    console.log('Error ENOENT detectado durante la inicialización, intentando reiniciar...');
+    // Intentar reiniciar después de un pequeño retraso
+    setTimeout(() => {
+      client.initialize().catch((err) => {
+        console.error('Error al reiniciar el cliente:', err.message);
+      });
+    }, 5000);
+  }
 });
 
 app.listen(port, () => {
