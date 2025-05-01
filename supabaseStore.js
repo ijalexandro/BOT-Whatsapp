@@ -4,13 +4,12 @@ class SupabaseStore {
     this.clientId = clientId;
   }
 
-  // Método para inicializar la conexión
   async connect() {
     console.log('Conectando SupabaseStore para clientId:', this.clientId);
   }
 
-  // Método para obtener la sesión desde Supabase
   async getSession() {
+    console.log('Intentando obtener sesión para clientId:', this.clientId);
     const { data, error } = await this.supabase
       .from('whatsapp_sessions')
       .select('session_data')
@@ -22,11 +21,13 @@ class SupabaseStore {
       return null;
     }
 
+    console.log('Sesión encontrada en Supabase:', data.session_data);
     return JSON.parse(data.session_data);
   }
 
-  // Método para guardar la sesión en Supabase
   async save(session) {
+    console.log('Guardando sesión para clientId:', this.clientId);
+    console.log('Datos de la sesión a guardar:', session);
     const sessionData = JSON.stringify(session);
     const { error } = await this.supabase
       .from('whatsapp_sessions')
@@ -37,18 +38,18 @@ class SupabaseStore {
 
     if (error) {
       console.error('Error al guardar la sesión en Supabase:', error.message);
+      throw new Error(`No se pudo guardar la sesión: ${error.message}`);
     } else {
       console.log('Sesión guardada en Supabase con éxito.');
     }
   }
 
-  // Método para extraer la sesión
   async extract() {
     return this.getSession();
   }
 
-  // Método para eliminar la sesión
   async remove() {
+    console.log('Eliminando sesión para clientId:', this.clientId);
     const { error } = await this.supabase
       .from('whatsapp_sessions')
       .delete()
@@ -61,8 +62,8 @@ class SupabaseStore {
     }
   }
 
-  // Nuevo método para verificar si la sesión existe
   async sessionExists() {
+    console.log('Verificando si existe sesión para clientId:', this.clientId);
     const { data, error } = await this.supabase
       .from('whatsapp_sessions')
       .select('client_id')
@@ -70,14 +71,15 @@ class SupabaseStore {
       .single();
 
     if (error && error.code === 'PGRST116') {
-      // PGRST116 indica que no se encontró la fila (no existe)
+      console.log('Sesión no encontrada (PGRST116)');
       return false;
     } else if (error) {
       console.error('Error al verificar la existencia de la sesión:', error.message);
       return false;
     }
 
-    return !!data; // Devuelve true si hay datos, false si no
+    console.log('Sesión encontrada:', !!data);
+    return !!data;
   }
 }
 
