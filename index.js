@@ -10,10 +10,10 @@ const qrcode = require('qrcode-terminal');
 // Supabase config
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// Variable global para almacenar el catálogo
+// Variable global para almacenar el catálogo (solo para validación local)
 let globalCatalog = null;
 
-// Cargar el catálogo al iniciar el servidor
+// Cargar el catálogo al iniciar el servidor (solo para validación)
 async function loadGlobalCatalog() {
   try {
     const { data, error } = await supabase
@@ -26,16 +26,11 @@ async function loadGlobalCatalog() {
       throw new Error('No se pudo cargar el catálogo global.');
     }
 
-    globalCatalog = JSON.stringify(data.map(p => ({
-      nombre: p.nombre,
-      tamano: p.tamano,
-      ingredientes: p.descripcion || 'No especificados',
-      precio: p.precio
-    })));
-    console.log('Catálogo global cargado con éxito:', globalCatalog);
+    globalCatalog = data; // Guardamos el catálogo completo para validación
+    console.log('Catálogo global cargado con éxito (solo para validación local).');
   } catch (err) {
     console.error('Excepción al cargar el catálogo global:', err.message);
-    globalCatalog = '[]';
+    globalCatalog = [];
   }
 }
 
@@ -78,8 +73,17 @@ class SupabaseLocalAuth extends LocalAuth {
   async saveAuth(session) {
     console.log('Método saveAuth ejecutado. Guardando sesión en Supabase con clientId:', this.clientId);
     try {
+      // Validar que session exista y tenga datos
       if (!session) {
         console.error('No se puede guardar la sesión: session es null o undefined');
+        return;
+      }
+
+      // Verificar que session tenga las propiedades esperadas
+      const requiredFields = ['creds', 'keys'];
+      const hasRequiredFields = requiredFields.every(field => session[field] !== undefined);
+      if (!hasRequiredFields) {
+        console.error('No se puede guardar la sesión: session no tiene los campos requeridos:', JSON.stringify(session));
         return;
       }
 
@@ -88,6 +92,8 @@ class SupabaseLocalAuth extends LocalAuth {
         console.error('No se puede guardar la sesión: sessionData está vacío');
         return;
       }
+
+      console.log('Datos de la sesión a guardar:', sessionData);
 
       const { error } = await this.supabase
         .from('whatsapp_sessions')
@@ -102,7 +108,7 @@ class SupabaseLocalAuth extends LocalAuth {
       if (error) {
         console.error('Error al guardar la sesión en Supabase:', error.message);
       } else {
-        console.log('Sesión guardada en Supabase con clientId:', this.clientId);
+        console.log('Sesión guardada correctamente en Supabase con clientId:', this.clientId);
       }
     } catch (err) {
       console.error('Excepción al intentar guardar la sesión en Supabase:', err.message);
@@ -183,7 +189,7 @@ const botResponses = new Set();
 const serverStartTime = new Date();
 console.log('Servidor iniciado en:', serverStartTime);
 
-// Cargar el catálogo al iniciar el servidor
+// Cargar el catálogo al iniciar el servidor (solo para validación local)
 loadGlobalCatalog();
 
 // Palabras clave para detectar si el cliente quiere hablar con una persona
@@ -203,17 +209,7 @@ function normalizeWhatsappNumber(number) {
 
 // Obtener catálogo para validación
 async function getCatalogData(tenantId) {
-  const { data, error } = await supabase
-    .from('productos')
-    .select('nombre, precio, descripcion, tamano, foto_url, categoria')
-    .eq('tenant_id', tenantId.toString());
-
-  if (error) {
-    console.error('Error al obtener el catálogo:', error.message);
-    throw new Error('No se pudo cargar el catálogo.');
-  }
-
-  return data;
+  return globalCatalog; // Usamos el catálogo cargado localmente
 }
 
 // Validar y corregir la respuesta de n8n
@@ -375,7 +371,7 @@ async function registerOrder({ clientNumber, tenantId, productName, price, size,
   return { success: true, data };
 }
 
-// Enviar mensaje a n8n
+// Enviar mensaje a n8n (sin enviar el catálogo)
 async function sendMessageToN8n(message, clientNumber, tenantId) {
   try {
     // Obtener historial de conversación (últimos 2 mensajes)
@@ -400,8 +396,8 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
     const response = await axios.post(process.env.N8N_WEBHOOK_URL, {
       message,
       clientNumber: normalizeWhatsappNumber(clientNumber),
-      conversationHistory: conversationHistory || 'No hay historial previo.',
-      globalCatalog
+      conversationHistory: conversationHistory || 'No hay historial previo.'
+      // No enviamos globalCatalog, n8n debe manejarlo
     });
 
     return response.data;
