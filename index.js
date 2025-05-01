@@ -4,8 +4,8 @@ const express = require('express');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { createClient } = require('@supabase/supabase-js');
 const bodyParser = require('body-parser');
-const axios = require('axios'); // ✅ Nuevo: para conectar con n8n
-const qrcode = require('qrcode-terminal');
+const axios = require('axios'); // ✅ Para conexión con n8n
+const qrcode = require('qrcode-terminal'); // ✅ Para mostrar QR correctamente
 
 // Configuración de Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -53,33 +53,35 @@ async function sendMessageToN8n(message, clientNumber) {
 
 // Eventos de WhatsApp
 client.on('qr', (qr) => {
-  console.log('Escaneá este código QR:');
+  console.log('📱 Escaneá este código QR desde WhatsApp Web:');
+  console.log('\n', qr, '\n');
+  console.log('También podés copiarlo en un generador de QR como https://www.qr-code-generator.com/');
   qrcode.generate(qr, { small: true });
 });
 
 client.on('authenticated', () => {
-  console.log('Autenticado en WhatsApp.');
+  console.log('✅ Autenticado en WhatsApp.');
 });
 
 client.on('auth_failure', (msg) => {
-  console.error('Fallo de autenticación:', msg);
+  console.error('❌ Fallo de autenticación:', msg);
 });
 
 client.on('ready', () => {
-  console.log('WhatsApp client listo.');
+  console.log('✅ WhatsApp client listo.');
 });
 
 client.on('disconnected', (reason) => {
-  console.log('Cliente desconectado:', reason);
+  console.log('🔌 Cliente desconectado:', reason);
   client.initialize();
 });
 
 client.on('message_create', async (msg) => {
   if (msg.fromMe) return;
 
-  console.log('Nuevo mensaje recibido:', msg.body);
+  console.log('💬 Nuevo mensaje recibido:', msg.body);
 
-  // Guardar en Supabase
+  // Guardar mensaje entrante en Supabase
   await supabase.from('messages').insert([
     {
       body: msg.body,
@@ -96,7 +98,7 @@ client.on('message_create', async (msg) => {
   if (response && response.reply) {
     await client.sendMessage(msg.from, response.reply);
 
-    // Registrar respuesta enviada
+    // Registrar respuesta enviada en Supabase
     await supabase.from('messages').insert([
       {
         body: response.reply,
@@ -111,8 +113,8 @@ client.on('message_create', async (msg) => {
   }
 });
 
-// Inicializar
+// Inicializar servidor Express y WhatsApp
 client.initialize();
 app.listen(port, () => {
-  console.log(`Servidor corriendo en el puerto ${port}`);
+  console.log(`🚀 Servidor corriendo en el puerto ${port}`);
 });
