@@ -7,8 +7,7 @@ class SupabaseRemoteAuth extends RemoteAuth {
     super(client, store, {
       clientId,
       backupSyncIntervalMs: 300000, // 5 minutos
-      // Deshabilitamos el respaldo local
-      dataPath: null // Esto debería evitar que RemoteAuth intente usar un archivo local
+      dataPath: null // Deshabilitamos el uso de archivos locales
     });
   }
 }
