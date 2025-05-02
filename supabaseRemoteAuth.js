@@ -9,15 +9,18 @@ class SupabaseRemoteAuth extends RemoteAuth {
     }
     const store = new SupabaseStore(supabase, clientId);
 
-    // Configurar RemoteAuth sin dependencia de archivos locales
+    // Configurar RemoteAuth sin archivos locales
     super({
       clientId: clientId,
       store: store,
       backupSyncIntervalMs: 300000, // 5 minutos
-      dataPath: undefined // Forzar que no use archivos locales (null no siempre funciona)
+      dataPath: undefined // Forzar no uso de archivos
     });
 
-    this.options = options;
+    // Asegurar que dataPath no se use
+    this.dataPath = undefined;
+    this.sessionName = `RemoteAuth-${clientId}`;
+    console.log('Configuración de RemoteAuth completada para clientId:', clientId);
   }
 
   setup(client) {
@@ -25,10 +28,7 @@ class SupabaseRemoteAuth extends RemoteAuth {
     if (super.setup) {
       super.setup(client);
     }
-    // Asegurar que no intente guardar en disco
-    this.client.on('auth_failure', () => {
-      console.error('Fallo de autenticación, revisando configuración de RemoteAuth');
-    });
+    console.log('Método setup invocado para clientId:', this.clientId);
   }
 }
 
