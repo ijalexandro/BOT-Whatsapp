@@ -2,17 +2,15 @@ const { RemoteAuth } = require('whatsapp-web.js');
 const SupabaseStore = require('./supabaseStore');
 
 class SupabaseRemoteAuth extends RemoteAuth {
-  constructor(client, options = {}) {
-    const { clientId, supabase } = options;
-    if (!clientId || !supabase) {
-      throw new Error('clientId y supabase son requeridos para SupabaseRemoteAuth');
-    }
+  constructor(client) {
+    const clientId = 'my-client'; // Hardcodeamos el clientId
+    const supabase = require('./supabaseClient'); // Importamos supabase
     const store = new SupabaseStore(supabase, clientId);
     super(client, {
-      clientId,
-      store,
+      clientId: clientId,
+      store: store,
       backupSyncIntervalMs: 300000, // 5 minutos
-      dataPath: null // Deshabilitamos el uso de archivos locales
+      dataPath: null // Sin archivos locales
     });
   }
 }
