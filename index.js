@@ -70,10 +70,33 @@ const client = new Client({
     ],
     headless: 'new',
     ignoreHTTPSErrors: true,
-    dumpio: true // Habilitamos dumpio para ver los logs de Puppeteer
+    dumpio: true // Habilitado para ver más detalles
   },
-  authStrategy: authStrategy,
-  // Usamos la versión predeterminada de WhatsApp
+  authStrategy: authStrategy
+});
+
+client.on('qr', (qr) => {
+  console.log('📱 Escanea este QR:', qr);
+});
+
+client.on('authenticated', () => {
+  console.log('✅ Autenticado en WhatsApp con éxito.');
+});
+
+client.on('auth_failure', (msg) => {
+  console.error('❌ Fallo de autenticación:', msg);
+});
+
+client.on('ready', () => {
+  console.log('🤖 Bot listo y conectado a WhatsApp.');
+});
+
+client.on('message', (msg) => {
+  console.log('Mensaje recibido:', msg.body);
+});
+
+client.initialize().catch((error) => {
+  console.error('Error al inicializar el cliente:', error.message);
 });
 
 const app = express();
