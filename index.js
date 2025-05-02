@@ -6,9 +6,9 @@ const { createClient } = require('@supabase/supabase-js');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const qrcode = require('qrcode-terminal');
-const SupabaseRemoteAuth = require('./supabaseRemoteAuth'); // Importamos la nueva clase
+const SupabaseRemoteAuth = require('./supabaseRemoteAuth'); // Importamos la clase personalizada
 
-// Supabase config
+// Configuración de Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 // Variable global para almacenar el catálogo (solo para validación local)
@@ -75,35 +75,12 @@ const client = new Client({
   authStrategy: authStrategy
 });
 
-client.on('qr', (qr) => {
-  console.log('📱 Escanea este QR:', qr);
-});
-
-client.on('authenticated', () => {
-  console.log('✅ Autenticado en WhatsApp con éxito.');
-});
-
-client.on('auth_failure', (msg) => {
-  console.error('❌ Fallo de autenticación:', msg);
-});
-
-client.on('ready', () => {
-  console.log('🤖 Bot listo y conectado a WhatsApp.');
-});
-
-client.on('message', (msg) => {
-  console.log('Mensaje recibido:', msg.body);
-});
-
-client.initialize().catch((error) => {
-  console.error('Error al inicializar el cliente:', error.message);
-});
-
+// Configuración de Express
 const app = express();
 const port = process.env.PORT || 3000;
 app.use(bodyParser.json());
 
-// Conjuntos para tracking
+// Conjuntos para rastrear mensajes y respuestas
 const processedMessages = new Set();
 const botResponses = new Set();
 
@@ -111,10 +88,7 @@ const botResponses = new Set();
 const serverStartTime = new Date();
 console.log('Servidor iniciado en:', serverStartTime);
 
-// Cargar el catálogo al iniciar el servidor (solo para validación local)
-loadGlobalCatalog();
-
-// Palabras clave para detectar si el cliente quiere hablar con una persona
+// Palabras clave para detectar solicitud de intervención humana
 const humanRequestKeywords = [
   'hablar con una persona',
   'necesito ayuda humana',
@@ -296,7 +270,6 @@ async function registerOrder({ clientNumber, tenantId, productName, price, size,
 // Enviar mensaje a n8n (sin enviar el catálogo)
 async function sendMessageToN8n(message, clientNumber, tenantId) {
   try {
-    // Obtener historial de conversación (últimos 2 mensajes)
     const { data: messages, error: messagesError } = await supabase
       .from('messages')
       .select('body, is_outgoing')
@@ -325,7 +298,6 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
       message,
       clientNumber: normalizeWhatsappNumber(clientNumber),
       conversationHistory: conversationHistory || 'No hay historial previo.'
-      // No enviamos globalCatalog, n8n debe manejarlo
     });
 
     console.log('Respuesta recibida de n8n:', response.data);
@@ -465,7 +437,7 @@ async function checkClientTimeout(clientNumber, tenantId) {
   }
 }
 
-// Eventos de WhatsApp
+// Eventos de WhatsApp con mejor manejo de errores
 client.on('qr', (qr) => {
   console.log('\n📱 Escaneá este código QR desde WhatsApp Web:');
   console.log('\n' + qr + '\n');
@@ -508,7 +480,7 @@ client.on('ready', () => {
         await checkClientTimeout(client.from, client.tenant_id);
       }
     }
-  }, 5 * 60 * 1000);
+  }, 5 * 60 * 1000); // Verifica cada 5 minutos
 });
 
 client.on('disconnected', (reason) => {
@@ -516,12 +488,10 @@ client.on('disconnected', (reason) => {
   client.initialize();
 });
 
-// Nuevo manejador para errores del cliente de WhatsApp
 client.on('error', (error) => {
   console.error('Error en el cliente de WhatsApp:', error.message);
-  // Opcional: reiniciar el cliente si el error es crítico
   if (error.message.includes('ENOENT')) {
-    console.log('Error ENOENT detectado, reiniciando cliente...');
+    console.log('Error ENOENT detectado, intentando reiniciar...');
     client.initialize();
   }
 });
@@ -745,12 +715,13 @@ client.on('message_create', async (msg) => {
   await checkClientTimeout(msg.from, tenantId);
 });
 
-// Inicializar servidor con manejo de errores
+// Inicializar servidor y cliente WhatsApp
+loadGlobalCatalog();
+
 client.initialize().catch((error) => {
   console.error('Error al inicializar el cliente de WhatsApp:', error.message);
   if (error.message.includes('ENOENT')) {
     console.log('Error ENOENT detectado durante la inicialización, intentando reiniciar...');
-    // Intentar reiniciar después de un pequeño retraso
     setTimeout(() => {
       client.initialize().catch((err) => {
         console.error('Error al reiniciar el cliente:', err.message);
