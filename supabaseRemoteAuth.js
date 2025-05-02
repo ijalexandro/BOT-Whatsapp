@@ -15,6 +15,12 @@ class SupabaseRemoteAuth extends RemoteAuth {
       dataPath: null // Sin archivos locales
     });
   }
+
+  // Método setup requerido por whatsapp-web.js
+  setup(client) {
+    this.client = client;
+    return super.setup(client); // Llama al setup de RemoteAuth
+  }
 }
 
 module.exports = SupabaseRemoteAuth;
