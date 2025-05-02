@@ -67,10 +67,11 @@ const client = new Client({
     ignoreHTTPSErrors: true,
     dumpio: true // Habilitamos dumpio para ver los logs de Puppeteer
   },
-  authStrategy: new SupabaseRemoteAuth(null, {
+  authStrategy: SupabaseRemoteAuth, // Pasamos la clase directamente
+  authStrategyOptions: { // Pasamos las opciones aquí
     clientId: 'my-client',
     supabase: supabase
-  }),
+  },
   // Usamos la versión predeterminada de WhatsApp
 });
 
