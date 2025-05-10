@@ -12,6 +12,8 @@ const puppeteer = require('puppeteer'); // Importar Puppeteer explícitamente
 console.log('Ruta de Puppeteer executablePath:', process.env.PUPPETEER_EXECUTABLE_PATH);
 console.log('Ruta de Puppeteer executablePath desde variable de entorno:', process.env.PUPPETEER_EXECUTABLE_PATH);
 console.log('Puppeteer default path:', require('puppeteer').executablePath());
+console.log(typeof process.env.PUPPETEER_EXECUTABLE_PATH); // debe ser 'string'
+
 
 // Configuración de Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
@@ -46,39 +48,22 @@ const authStrategy = new SupabaseRemoteAuth({
   supabase: supabase
 });
 
-const client = new Client({
-  puppeteer: {
+(async () => {
+  const browser = await puppeteer.launch({
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+    headless: 'new',
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
       '--disable-gpu',
-      '--disable-software-rasterizer',
-      '--disable-features=IsolateOrigins,site-per-process',
-      '--disable-web-security',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--disable-breakpad',
-      '--disable-client-side-phishing-detection',
-      '--disable-default-apps',
-      '--disable-extensions',
-      '--disable-sync',
-      '--no-default-browser-check',
-      '--no-pings',
-      '--enable-logging',
-      '--v=1'
-    ],
-    headless: 'new',
-    ignoreHTTPSErrors: true,
-    dumpio: true // Habilitado para ver más detalles
-  },
-  authStrategy: authStrategy
-});
+      '--disable-dev-shm-usage'
+    ]
+  });
+
+  const client = new Client({
+    puppeteer: { browser },
+    authStrategy: authStrategy
+  });
 
 // Configuración de Express
 const app = express();
