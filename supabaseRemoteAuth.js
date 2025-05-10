@@ -7,28 +7,28 @@ class SupabaseRemoteAuth extends RemoteAuth {
     if (!clientId || !supabase) {
       throw new Error('clientId y supabase son requeridos para SupabaseRemoteAuth');
     }
+
     const store = new SupabaseStore(supabase, clientId);
 
-    // Configurar RemoteAuth sin archivos locales
     super({
-      clientId: clientId,
-      store: store,
-      backupSyncIntervalMs: 300000, // 5 minutos
-      dataPath: undefined // Forzar no uso de archivos
+      clientId,
+      store,
+      backupSyncIntervalMs: 300000, // cada 5 minutos
+      dataPath: null // asegura que no se usen archivos locales
     });
 
-    // Asegurar que dataPath no se use
-    this.dataPath = undefined;
+    this.supabase = supabase;
+    this.clientId = clientId;
     this.sessionName = `RemoteAuth-${clientId}`;
-    console.log('Configuración de RemoteAuth completada para clientId:', clientId);
+    console.log(`✅ SupabaseRemoteAuth configurado para clientId: ${clientId}`);
   }
 
   setup(client) {
     this.client = client;
-    if (super.setup) {
+    if (typeof super.setup === 'function') {
       super.setup(client);
     }
-    console.log('Método setup invocado para clientId:', this.clientId);
+    console.log(`🔧 setup() ejecutado para clientId: ${this.clientId}`);
   }
 }
 
