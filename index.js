@@ -9,6 +9,7 @@ const qrcode = require('qrcode-terminal');
 const SupabaseRemoteAuth = require('./supabaseRemoteAuth'); // Importamos la clase personalizada
 const puppeteer = require('puppeteer'); // Importar Puppeteer explícitamente
 
+console.log('Ruta de Puppeteer executablePath:', process.env.PUPPETEER_EXECUTABLE_PATH);
 
 // Configuración de Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
@@ -45,7 +46,7 @@ const authStrategy = new SupabaseRemoteAuth({
 
 const client = new Client({
   puppeteer: {
-    executablePath: '/usr/bin/chromium-browser', // Una cadena válida
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/lib/chromium-browser/chromium',
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
