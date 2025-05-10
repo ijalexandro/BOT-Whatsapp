@@ -43,7 +43,7 @@ const authStrategy = new SupabaseRemoteAuth({
 
 const client = new Client({
   puppeteer: {
-    executablePath: string,
+    executablePath: '/usr/bin/chromium-browser', // Una cadena válida
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
