@@ -10,6 +10,8 @@ const SupabaseRemoteAuth = require('./supabaseRemoteAuth'); // Importamos la cla
 const puppeteer = require('puppeteer'); // Importar Puppeteer explícitamente
 
 console.log('Ruta de Puppeteer executablePath:', process.env.PUPPETEER_EXECUTABLE_PATH);
+console.log('Ruta de Puppeteer executablePath desde variable de entorno:', process.env.PUPPETEER_EXECUTABLE_PATH);
+console.log('Puppeteer default path:', require('puppeteer').executablePath());
 
 // Configuración de Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
