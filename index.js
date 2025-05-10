@@ -43,6 +43,7 @@ const authStrategy = new SupabaseRemoteAuth({
 
 const client = new Client({
   puppeteer: {
+    executablePath: string,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
