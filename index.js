@@ -7,6 +7,8 @@ const bodyParser = require('body-parser');
 const axios = require('axios');
 const qrcode = require('qrcode-terminal');
 const SupabaseRemoteAuth = require('./supabaseRemoteAuth'); // Importamos la clase personalizada
+const puppeteer = require('puppeteer'); // Importar Puppeteer explícitamente
+
 
 // Configuración de Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
