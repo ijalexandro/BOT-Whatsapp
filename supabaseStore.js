@@ -1,15 +1,20 @@
 class SupabaseStore {
   constructor(supabase, clientId) {
+    if (!supabase || !clientId) {
+      throw new Error('Supabase y clientId son requeridos para SupabaseStore');
+    }
+
     this.supabase = supabase;
     this.clientId = clientId;
   }
 
   async connect() {
-    console.log('Conectando SupabaseStore para clientId:', this.clientId);
+    console.log(`[SupabaseStore] Conectando para clientId: ${this.clientId}`);
   }
 
   async getSession() {
-    console.log('Intentando obtener sesión para clientId:', this.clientId);
+    console.log(`[SupabaseStore] Obteniendo sesión para clientId: ${this.clientId}`);
+
     const { data, error } = await this.supabase
       .from('whatsapp_sessions')
       .select('session_data')
@@ -17,60 +22,53 @@ class SupabaseStore {
       .single();
 
     if (error || !data) {
-      console.log('No se encontró sesión previa en Supabase:', error?.message || 'Sin datos');
-      return null; // Devolvemos null si no hay sesión
+      console.warn('[SupabaseStore] Sesión no encontrada o error:', error?.message || 'Sin datos');
+      return null;
     }
 
     try {
-      const sessionData = JSON.parse(data.session_data);
-      console.log('Sesión encontrada en Supabase:', sessionData);
-      return sessionData.session ? sessionData : {};
-    } catch (parseError) {
-      console.error('Error al parsear la sesión desde Supabase:', parseError.message);
+      const parsed = JSON.parse(data.session_data);
+      return parsed.session ? parsed : {};
+    } catch (err) {
+      console.error('[SupabaseStore] Error al parsear sesión:', err.message);
       return null;
     }
   }
 
   async save(session) {
-    console.log('Guardando sesión para clientId:', this.clientId);
-    console.log('Datos de la sesión a guardar:', session);
-    const sessionData = JSON.stringify({ session: session });
-    const { data: existingSession, error: checkError } = await this.supabase
+    console.log(`[SupabaseStore] Guardando sesión para clientId: ${this.clientId}`);
+    const sessionData = JSON.stringify({ session });
+
+    const { data: existing, error: checkError } = await this.supabase
       .from('whatsapp_sessions')
       .select('client_id')
       .eq('client_id', this.clientId)
       .single();
 
     if (checkError && checkError.code !== 'PGRST116') {
-      console.error('Error al verificar la existencia de la sesión antes de guardar:', checkError.message);
-      throw new Error(`No se pudo verificar la sesión: ${checkError.message}`);
+      console.error('[SupabaseStore] Error al verificar existencia:', checkError.message);
+      throw new Error('Error al guardar sesión');
     }
 
-    if (existingSession) {
-      console.log('Sesión ya existe, actualizando...');
+    if (existing) {
       const { error: updateError } = await this.supabase
         .from('whatsapp_sessions')
         .update({ session_data: sessionData })
         .eq('client_id', this.clientId);
 
       if (updateError) {
-        console.error('Error al actualizar la sesión en Supabase:', updateError.message);
-        throw new Error(`No se pudo actualizar la sesión: ${updateError.message}`);
-      } else {
-        console.log('Sesión actualizada en Supabase con éxito.');
+        throw new Error(`[SupabaseStore] No se pudo actualizar sesión: ${updateError.message}`);
       }
+      console.log('[SupabaseStore] Sesión actualizada');
     } else {
-      console.log('Sesión no existe, insertando nueva...');
       const { error: insertError } = await this.supabase
         .from('whatsapp_sessions')
         .insert({ client_id: this.clientId, session_data: sessionData });
 
       if (insertError) {
-        console.error('Error al insertar la sesión en Supabase:', insertError.message);
-        throw new Error(`No se pudo insertar la sesión: ${insertError.message}`);
-      } else {
-        console.log('Sesión insertada en Supabase con éxito.');
+        throw new Error(`[SupabaseStore] No se pudo insertar sesión: ${insertError.message}`);
       }
+      console.log('[SupabaseStore] Sesión insertada');
     }
   }
 
@@ -79,21 +77,21 @@ class SupabaseStore {
   }
 
   async remove() {
-    console.log('Eliminando sesión para clientId:', this.clientId);
+    console.log(`[SupabaseStore] Eliminando sesión para clientId: ${this.clientId}`);
     const { error } = await this.supabase
       .from('whatsapp_sessions')
       .delete()
       .eq('client_id', this.clientId);
 
     if (error) {
-      console.error('Error al eliminar la sesión en Supabase:', error.message);
+      console.error('[SupabaseStore] Error al eliminar sesión:', error.message);
     } else {
-      console.log('Sesión eliminada de Supabase con éxito.');
+      console.log('[SupabaseStore] Sesión eliminada');
     }
   }
 
   async sessionExists() {
-    console.log('Verificando si existe sesión para clientId:', this.clientId);
+    console.log(`[SupabaseStore] Verificando existencia de sesión para clientId: ${this.clientId}`);
     const { data, error } = await this.supabase
       .from('whatsapp_sessions')
       .select('client_id')
@@ -101,14 +99,12 @@ class SupabaseStore {
       .single();
 
     if (error && error.code === 'PGRST116') {
-      console.log('Sesión no encontrada (PGRST116)');
       return false;
     } else if (error) {
-      console.error('Error al verificar la existencia de la sesión:', error.message);
+      console.error('[SupabaseStore] Error al consultar existencia:', error.message);
       return false;
     }
 
-    console.log('Sesión encontrada:', !!data);
     return !!data;
   }
 }
