@@ -723,7 +723,9 @@ client.initialize().catch((error) => {
 app.listen(port, () => {
   console.log(`🚀 Servidor Express corriendo en puerto ${port}`);
 });
-+ })();   // ← Cierra la función async autoejecutable
+
+// Cierra la función async autoejecutable
+})(); // ← Esto cierra la función async que inicia Puppeteer y el cliente
 
 // Manejo de errores globales para evitar que el proceso se caiga
 process.on('uncaughtException', (error) => {
