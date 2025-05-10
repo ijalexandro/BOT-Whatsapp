@@ -1,7 +1,7 @@
-# Usar una imagen base de Node.js con soporte para Chromium
+# Imagen base liviana con Node y soporte para Puppeteer
 FROM node:22-slim
 
-# Instalar dependencias necesarias para Chromium
+# Instalar Chromium y librerías necesarias
 RUN apt-get update && apt-get install -y \
     chromium \
     libatk1.0-0 \
@@ -17,30 +17,27 @@ RUN apt-get update && apt-get install -y \
     libpango-1.0-0 \
     libcairo2 \
     libasound2 \
-    --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
+    --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
 
-# Verificar la ruta de Chromium
-RUN which chromium || echo "Chromium no encontrado en /usr/bin/chromium" && \
-    echo "Usando Chromium en: $(which chromium)"
+# Verificar ruta de Chromium
+RUN which chromium
 
-# Establecer el directorio de trabajo
+# Definir directorio de trabajo
 WORKDIR /app
 
-# Copiar los archivos de package.json y package-lock.json (si existe)
+# Copiar dependencias e instalar
 COPY package*.json ./
-
-# Instalar las dependencias de Node.js
 RUN npm install
 
-# Copiar el resto de los archivos del proyecto
+# Copiar el resto del proyecto
 COPY . .
 
-# Configurar la variable de entorno para Puppeteer con la ruta correcta
+# Exportar variables
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Exponer el puerto
 EXPOSE 3000
 
-# Comando para iniciar la aplicación
+# Comando de arranque
 CMD ["npm", "start"]
