@@ -4,8 +4,7 @@
   "description": "Bot de WhatsApp integrado con Supabase y n8n",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "postinstall": "apt-get update && apt-get install -y libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2"
+    "start": "node index.js"
   },
   "dependencies": {
     "axios": "^1.7.2",
