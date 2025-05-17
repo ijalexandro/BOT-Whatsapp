@@ -20,7 +20,7 @@ RUN which chromium || echo "Chromium no encontrado en /usr/bin/chromium" && \
     echo "Usando Chromium en: $(which chromium)"
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm install puppeteer@^23.0.0 && npm install && npm list puppeteer
 COPY . .
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 EXPOSE 3000
