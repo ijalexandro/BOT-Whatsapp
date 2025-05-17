@@ -6,14 +6,6 @@ const { createClient } = require('@supabase/supabase-js');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const qrcode = require('qrcode-terminal');
-const SupabaseRemoteAuth = require('./supabaseRemoteAuth'); // Importamos la clase personalizada
-const puppeteer = require('puppeteer'); // Importar Puppeteer explícitamente
-
-console.log('Ruta de Puppeteer executablePath:', process.env.PUPPETEER_EXECUTABLE_PATH);
-console.log('Ruta de Puppeteer executablePath desde variable de entorno:', process.env.PUPPETEER_EXECUTABLE_PATH);
-console.log('Puppeteer default path:', require('puppeteer').executablePath());
-console.log(typeof process.env.PUPPETEER_EXECUTABLE_PATH); // debe ser 'string'
-
 
 // Configuración de Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
@@ -34,7 +26,7 @@ async function loadGlobalCatalog() {
       throw new Error('No se pudo cargar el catálogo global.');
     }
 
-    globalCatalog = data; // Guardamos el catálogo completo para validación
+    globalCatalog = data;
     console.log('Catálogo global cargado con éxito (solo para validación local).');
   } catch (err) {
     console.error('Excepción al cargar el catálogo global:', err.message);
@@ -42,28 +34,21 @@ async function loadGlobalCatalog() {
   }
 }
 
-// Configurar cliente WhatsApp con SupabaseRemoteAuth
-const authStrategy = new SupabaseRemoteAuth({
-  clientId: 'my-client',
-  supabase: supabase
-});
-
-(async () => {
-  const browser = await puppeteer.launch({
+// Configurar cliente WhatsApp
+const client = new Client({
+  puppeteer: {
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-    headless: 'new',
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-gpu',
       '--disable-dev-shm-usage'
-    ]
-  });
-
-  const client = new Client({
-    puppeteer: { browser },
-    authStrategy: authStrategy
-  });
+    ],
+    headless: 'new',
+    ignoreHTTPSErrors: true,
+    dumpio: true
+  }
+});
 
 // Configuración de Express
 const app = express();
@@ -95,7 +80,7 @@ function normalizeWhatsappNumber(number) {
 
 // Obtener catálogo para validación
 async function getCatalogData(tenantId) {
-  return globalCatalog; // Usamos el catálogo cargado localmente
+  return globalCatalog;
 }
 
 // Validar y corregir la respuesta de n8n
@@ -427,7 +412,7 @@ async function checkClientTimeout(clientNumber, tenantId) {
   }
 }
 
-// Eventos de WhatsApp con mejor manejo de errores
+// Eventos de WhatsApp
 client.on('qr', (qr) => {
   console.log('\n📱 Escaneá este código QR desde WhatsApp Web:');
   console.log('\n' + qr + '\n');
@@ -435,7 +420,7 @@ client.on('qr', (qr) => {
 });
 
 client.on('authenticated', async () => {
-  console.log('✅ Autenticado en WhatsApp con éxito. La sesión debería estar guardada en Supabase.');
+  console.log('✅ Autenticado en WhatsApp con éxito.');
 });
 
 client.on('auth_failure', (msg) => {
@@ -723,9 +708,6 @@ client.initialize().catch((error) => {
 app.listen(port, () => {
   console.log(`🚀 Servidor Express corriendo en puerto ${port}`);
 });
-
-// Cierra la función async autoejecutable
-})(); // ← Esto cierra la función async que inicia Puppeteer y el cliente
 
 // Manejo de errores globales para evitar que el proceso se caiga
 process.on('uncaughtException', (error) => {
