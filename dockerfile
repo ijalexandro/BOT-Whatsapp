@@ -24,4 +24,4 @@ RUN npm install
 COPY . .
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 EXPOSE 3000
-CMD ["npm", "start"]
+CMD ["node", "index.js"]
