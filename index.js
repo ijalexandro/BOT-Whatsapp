@@ -13,6 +13,11 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 // Variable global para almacenar el catálogo (solo para validación local)
 let globalCatalog = null;
 
+// Logs iniciales para depuración
+console.log('Iniciando el bot...');
+console.log('Versión de Node.js:', process.version);
+console.log('Uso de memoria inicial:', process.memoryUsage());
+
 // Cargar el catálogo al iniciar el servidor (solo para validación)
 async function loadGlobalCatalog() {
   try {
@@ -34,7 +39,7 @@ async function loadGlobalCatalog() {
   }
 }
 
-// Configurar cliente WhatsApp
+// Configurar cliente WhatsApp con argumentos optimizados para Puppeteer
 const client = new Client({
   puppeteer: {
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
@@ -42,7 +47,22 @@ const client = new Client({
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-gpu',
-      '--disable-dev-shm-usage'
+      '--disable-dev-shm-usage',
+      '--no-zygote', // Reduce el uso de memoria
+      '--single-process', // Ejecuta Chromium en un solo proceso
+      '--disable-background-networking',
+      '--disable-background-timer-throttling',
+      '--disable-breakpad',
+      '--disable-client-side-phishing-detection',
+      '--disable-default-apps',
+      '--disable-extensions',
+      '--disable-hang-monitor',
+      '--disable-prompt-on-repost',
+      '--disable-sync',
+      '--disable-translate',
+      '--metrics-recording-only',
+      '--no-first-run',
+      '--safebrowsing-disable-auto-update'
     ],
     headless: 'new',
     ignoreHTTPSErrors: true,
@@ -429,7 +449,9 @@ client.on('auth_failure', (msg) => {
 
 client.on('ready', () => {
   console.log('🤖 Bot listo y conectado a WhatsApp.');
+  console.log('Uso de memoria después de conectar:', process.memoryUsage());
   setInterval(async () => {
+    console.log('Verificando clientes activos...');
     const { data: messages, error } = await supabase
       .from('messages')
       .select('from, tenant_id')
@@ -472,6 +494,8 @@ client.on('error', (error) => {
 });
 
 client.on('message_create', async (msg) => {
+  console.log('Evento message_create disparado:', msg);
+  console.log('Uso de memoria al recibir mensaje:', process.memoryUsage());
   const messageId = msg.id._serialized;
   if (processedMessages.has(messageId)) {
     console.log('Mensaje ya procesado:', messageId);
@@ -629,7 +653,7 @@ client.on('message_create', async (msg) => {
             `Te recomiendo la ${product.nombre} (${product.tamano}):\nIngredientes: ${product.ingredientes}\nPrecio: ${product.precio}`
           ).join('\n\n') + '\n\n¿Querés que te las reserve?';
         } else {
-          finalResponse = `Te recomiendo la ${correctedResponse.nombre} (${correctedResponse.tamano}):\nIngredientes: ${correctedResponse.ingredientes}\nPrecio: ${correctedResponse.precio}\n\n¿Querés que te la reserve?`;
+          finalResponse = `Te recomiendo la ${correctedResponse.nombre} (${correctedResponse.tamano}):\nIngredientes: ${correctedResponse.ingredientes}\nPrecio: ${product.precio}\n\n¿Querés que te la reserve?`;
         }
         if (validationResult.textAfterJson) {
           finalResponse += `\n\n${validationResult.textAfterJson}`;
@@ -711,9 +735,17 @@ app.listen(port, () => {
 
 // Manejo de errores globales para evitar que el proceso se caiga
 process.on('uncaughtException', (error) => {
-  console.error('Excepción no manejada:', error.message);
+  console.error('Excepción no manejada:', error.message, error.stack);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Rechazo no manejado en:', promise, 'Razón:', reason);
+});
+
+process.on('SIGTERM', () => {
+  console.log('Recibida señal SIGTERM. Cerrando el cliente de WhatsApp...');
+  client.destroy().then(() => {
+    console.log('Cliente de WhatsApp cerrado. Terminando proceso...');
+    process.exit(0);
+  });
 });
