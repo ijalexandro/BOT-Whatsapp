@@ -55,14 +55,19 @@ const client = new Client({
       '--metrics-recording-only',
       '--no-first-run',
       '--safebrowsing-disable-auto-update',
-      '--disable-features=TranslateUI', // Reduce carga inicial
-      '--enable-features=NetworkService', // Mejora estabilidad de red
-      '--ignore-certificate-errors' // Evita problemas de certificados
+      '--disable-features=TranslateUI',
+      '--enable-features=NetworkService',
+      '--ignore-certificate-errors',
+      '--disable-software-rasterizer',
+      '--disable-accelerated-2d-canvas',
+      '--disable-audio-output',
+      '--single-process', // Reduce uso de memoria
+      '--disable-notifications' // Deshabilita notificaciones
     ],
     headless: 'new',
     ignoreHTTPSErrors: true,
     dumpio: true,
-    timeout: 30000 // Aumenta el tiempo de inicialización a 30 segundos
+    timeout: 60000 // Aumenta a 60 segundos
   }
 });
 
@@ -292,7 +297,7 @@ async function checkClientTimeout(clientNumber, tenantId) {
 
 client.on('qr', (qr) => {
   console.log('\n📱 Escaneá este código QR desde WhatsApp Web:');
-  console.log('\n' + qr + '\n');
+  console.log('\n' + (qr || 'No se pudo generar el QR, intenta de nuevo.') + '\n');
   console.log('Podés copiarlo y usar un generador QR como https://www.qr-code-generator.com/');
 });
 
@@ -336,19 +341,20 @@ client.on('ready', () => {
 
 client.on('disconnected', (reason) => {
   console.log('🔌 Cliente desconectado:', reason);
-  client.initialize();
+  console.log('Intentando reiniciar en 5 segundos...');
+  setTimeout(() => client.initialize(), 5000);
 });
 
 client.on('error', (error) => {
   console.error('Error en el cliente de WhatsApp:', error.message);
-  if (error.message.includes('ENOENT')) {
-    console.log('Error ENOENT detectado, intentando reiniciar...');
-    client.initialize();
+  if (error.message.includes('ENOENT') || error.message.includes('TimeoutError')) {
+    console.log('Error detectado, reiniciando en 5 segundos...');
+    setTimeout(() => client.initialize(), 5000);
   }
 });
 
 client.on('message_create', async (msg) => {
-  console.log('Evento message_create disparado:', msg);
+  console.log('Evento message_create disparado:', msg.body);
   console.log('Uso de memoria al recibir mensaje:', process.memoryUsage());
   const messageId = msg.id._serialized;
   if (processedMessages.has(messageId)) {
@@ -453,7 +459,7 @@ client.on('message_create', async (msg) => {
         if (Array.isArray(correctedResponse)) {
           finalResponse = correctedResponse.map(product => `Te recomiendo la ${product.nombre} (${product.tamano}):\nIngredientes: ${product.ingredientes}\nPrecio: ${product.precio}`).join('\n\n') + '\n\n¿Querés que te las reserve?';
         } else {
-          finalResponse = `Te recomiendo la ${correctedResponse.nombre} (${correctedResponse.tamano}):\nIngredientes: ${correctedResponse.ingredientes}\nPrecio: ${product.precio}\n\n¿Querés que te la reserve?`;
+          finalResponse = `Te recomiendo la ${correctedResponse.nombre} (${correctedResponse.tamano}):\nIngredientes: ${correctedResponse.ingredientes}\nPrecio: ${correctedResponse.precio}\n\n¿Querés que te la reserve?`;
         }
         if (validationResult.textAfterJson) finalResponse += `\n\n${validationResult.textAfterJson}`;
         jsonResponse = correctedResponse;
@@ -480,13 +486,9 @@ loadGlobalCatalog();
 
 client.initialize().catch((error) => {
   console.error('Error al inicializar el cliente de WhatsApp:', error.message);
-  if (error.message.includes('ENOENT') || error.message.includes('Session closed')) {
-    console.log('Error detectado, intentando reiniciar en 5 segundos...');
-    setTimeout(() => {
-      client.initialize().catch((err) => {
-        console.error('Error al reiniciar el cliente:', err.message);
-      });
-    }, 5000);
+  if (error.message.includes('ENOENT') || error.message.includes('TimeoutError')) {
+    console.log('Error detectado, reiniciando en 5 segundos...');
+    setTimeout(() => client.initialize(), 5000);
   }
 });
 
@@ -496,10 +498,18 @@ app.listen(port, () => {
 
 process.on('uncaughtException', (error) => {
   console.error('Excepción no manejada:', error.message, error.stack);
+  if (error.message.includes('TimeoutError')) {
+    console.log('Timeout detectado, reiniciando en 5 segundos...');
+    setTimeout(() => client.initialize(), 5000);
+  }
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Rechazo no manejado en:', promise, 'Razón:', reason);
+  if (reason.message.includes('TimeoutError')) {
+    console.log('Timeout detectado, reiniciando en 5 segundos...');
+    setTimeout(() => client.initialize(), 5000);
+  }
 });
 
 process.on('SIGTERM', () => {
