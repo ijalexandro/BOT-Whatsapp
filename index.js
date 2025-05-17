@@ -61,13 +61,13 @@ const client = new Client({
       '--disable-software-rasterizer',
       '--disable-accelerated-2d-canvas',
       '--disable-audio-output',
-      '--single-process', // Reduce uso de memoria
-      '--disable-notifications' // Deshabilita notificaciones
+      '--single-process',
+      '--disable-notifications'
     ],
     headless: 'new',
     ignoreHTTPSErrors: true,
     dumpio: true,
-    timeout: 60000 // Aumenta a 60 segundos
+    timeout: 60000
   }
 });
 
@@ -80,15 +80,6 @@ const botResponses = new Set();
 
 const serverStartTime = new Date();
 console.log('Servidor iniciado en:', serverStartTime);
-
-const humanRequestKeywords = [
-  'hablar con una persona',
-  'necesito ayuda humana',
-  'quiero hablar con alguien',
-  'hablar con el encargado',
-  'ayuda de una persona',
-  'hablar con un humano'
-];
 
 function normalizeWhatsappNumber(number) {
   return number ? number.replace('@c.us', '').trim() : null;
@@ -193,108 +184,6 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
   }
 }
 
-async function notifyAdmin(tenantId, clientNumber, message) {
-  console.log('notifyAdmin - Intentando notificar:', tenantId, clientNumber);
-  const { data: tenant, error: tenantError } = await supabase
-    .from('tenants')
-    .select('whatsapp_number')
-    .eq('id', tenantId)
-    .single();
-  if (tenantError || !tenant) {
-    console.error('Error obteniendo tenant:', tenantError?.message || 'No encontrado');
-    return;
-  }
-  const adminNumber = tenant.whatsapp_number;
-  if (!adminNumber) {
-    console.error('No hay número de WhatsApp para el tenant');
-    return;
-  }
-  try {
-    const normalizedAdminNumber = normalizeWhatsappNumber(adminNumber);
-    const normalizedClientNumber = normalizeWhatsappNumber(clientNumber) || 'Desconocido';
-    const notifMessage = `Alerta: Cliente ${normalizedClientNumber} necesita ayuda: ${message}`;
-    const { data: existing, error: notifError } = await supabase
-      .from('notificaciones')
-      .select('id')
-      .eq('client_number', normalizedClientNumber)
-      .eq('tenant_id', tenantId)
-      .eq('message', notifMessage)
-      .gte('created_at', new Date(Date.now() - 20 * 60 * 1000).toISOString())
-      .limit(1);
-    if (notifError) {
-      console.error('Error verificando notificaciones:', notifError.message);
-      return;
-    }
-    if (!existing || existing.length === 0) {
-      const sentMessage = await client.sendMessage(`${normalizedAdminNumber}@c.us`, notifMessage);
-      botResponses.add(sentMessage.id._serialized);
-      await supabase.from('notificaciones').insert([{ client_number: normalizedClientNumber, tenant_id: tenantId, message: notifMessage }]);
-      console.log('Notificación enviada');
-    } else {
-      console.log('Notificación ya enviada recientemente');
-    }
-  } catch (error) {
-    console.error('Error notificando:', error.message);
-  }
-}
-
-async function handleManualResponse(clientNumber, tenantId) {
-  const normalizedClientNumber = normalizeWhatsappNumber(clientNumber) || 'Desconocido';
-  const { error } = await supabase
-    .from('respuestas_manuales')
-    .upsert([{ client_number: normalizedClientNumber, tenant_id: tenantId, manual_response: true, last_response_at: new Date(), deepseek_invocation_count: 0 }], { onConflict: ['client_number', 'tenant_id'] });
-  if (error) console.error('Error registrando respuesta manual:', error.message);
-  else console.log('Intervención manual registrada para:', normalizedClientNumber);
-}
-
-async function checkClientTimeout(clientNumber, tenantId) {
-  const normalizedClientNumber = normalizeWhatsappNumber(clientNumber) || 'Desconocido';
-  const { data: manualResponse, error } = await supabase
-    .from('respuestas_manuales')
-    .select('manual_response, last_response_at')
-    .eq('client_number', normalizedClientNumber)
-    .eq('tenant_id', tenantId)
-    .single();
-  if (error && error.code !== 'PGRST116') {
-    console.error('Error verificando timeout:', error.message);
-    return;
-  }
-  if (manualResponse?.manual_response) {
-    const lastResponseTime = manualResponse.last_response_at ? new Date(manualResponse.last_response_at) : null;
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-    if (lastResponseTime && lastResponseTime < serverStartTime) {
-      console.log(`Intervención manual antigua ignorada para ${normalizedClientNumber}:`, lastResponseTime);
-      await supabase
-        .from('respuestas_manuales')
-        .update({ manual_response: false })
-        .eq('client_number', normalizedClientNumber)
-        .eq('tenant_id', tenantId);
-      return;
-    }
-    if (lastResponseTime && lastResponseTime > oneHourAgo) return;
-    await supabase
-      .from('respuestas_manuales')
-      .update({ manual_response: false })
-      .eq('client_number', normalizedClientNumber)
-      .eq('tenant_id', tenantId);
-    if (lastResponseTime && lastResponseTime < tenMinutesAgo) {
-      const { data: tenant } = await supabase
-        .from('tenants')
-        .select('whatsapp_number')
-        .eq('id', tenantId)
-        .single();
-      if (tenant?.whatsapp_number) {
-        const sentMessage = await client.sendMessage(
-          `${normalizeWhatsappNumber(tenant.whatsapp_number)}@c.us`,
-          `Alerta: Cliente ${normalizedClientNumber} sin respuesta en 10 minutos`
-        );
-        botResponses.add(sentMessage.id._serialized);
-      }
-    }
-  }
-}
-
 client.on('qr', (qr) => {
   console.log('\n📱 Escaneá este código QR desde WhatsApp Web:');
   console.log('\n' + (qr || 'No se pudo generar el QR, intenta de nuevo.') + '\n');
@@ -312,31 +201,6 @@ client.on('auth_failure', (msg) => {
 client.on('ready', () => {
   console.log('🤖 Bot listo y conectado a WhatsApp.');
   console.log('Uso de memoria después de conectar:', process.memoryUsage());
-  setInterval(async () => {
-    console.log('Verificando clientes activos...');
-    const { data: messages, error } = await supabase
-      .from('messages')
-      .select('from, tenant_id')
-      .order('created_at', { ascending: false });
-    if (error) {
-      console.error('Error al obtener mensajes:', error.message);
-      return;
-    }
-    if (messages) {
-      const clients = [];
-      const seen = new Set();
-      for (const message of messages) {
-        const key = `${message.from}:${message.tenant_id}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          clients.push({ from: message.from, tenant_id: message.tenant_id });
-        }
-      }
-      for (const client of clients) {
-        await checkClientTimeout(client.from, client.tenant_id);
-      }
-    }
-  }, 5 * 60 * 1000);
 });
 
 client.on('disconnected', (reason) => {
@@ -380,15 +244,6 @@ client.on('message_create', async (msg) => {
       .eq('whatsapp_number', normalizedTo)
       .single();
     tenantId = tenant?.id || 1;
-  } else {
-    const { data: lastMessage } = await supabase
-      .from('messages')
-      .select('tenant_id')
-      .eq('from', msg.from)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-    tenantId = lastMessage?.tenant_id || 1;
   }
   if (msg.fromMe || normalizedFrom === '5491135907587') {
     if (botResponses.has(messageId)) {
@@ -404,7 +259,6 @@ client.on('message_create', async (msg) => {
       console.error('Error al guardar mensaje manual:', saveError.message);
     } else {
       console.log('Mensaje manual guardado:', savedManualMessage);
-      await handleManualResponse(msg.to, tenantId);
     }
     return;
   }
@@ -415,32 +269,6 @@ client.on('message_create', async (msg) => {
     .select();
   if (saveError) {
     console.error('Error al guardar mensaje entrante:', saveError.message);
-    return;
-  }
-  const messageLower = msg.body.toLowerCase();
-  const wantsHuman = humanRequestKeywords.some(keyword => messageLower.includes(keyword));
-  if (wantsHuman) {
-    const notifMessage = `Cliente ${normalizedFrom} solicita hablar con una persona: "${msg.body}"`;
-    await notifyAdmin(tenantId, normalizedFrom, notifMessage);
-    await handleManualResponse(msg.from, tenantId);
-    const sentMessage = await client.sendMessage(msg.from, 'Un agente te va a contactar en breve, ¿dale?');
-    botResponses.add(sentMessage.id._serialized);
-    await supabase.from('messages').insert([{ body: 'Un agente te va a contactar en breve, ¿dale?', from: msg.from, recipient: msg.from, tenant_id: tenantId, is_outgoing: true, response_source: 'system', response_status: 'sent', created_at: new Date().toISOString() }]);
-    return;
-  }
-  const { data: manualResponse, error: manualError } = await supabase
-    .from('respuestas_manuales')
-    .select('manual_response, last_response_at')
-    .eq('client_number', normalizedFrom)
-    .eq('tenant_id', tenantId)
-    .single();
-  if (manualError && manualError.code !== 'PGRST116') {
-    console.error('Error al verificar respuesta manual:', manualError.message);
-  }
-  const lastResponseTime = manualResponse?.last_response_at ? new Date(manualResponse.last_response_at) : null;
-  const isManualResponseActive = manualResponse?.manual_response && lastResponseTime && lastResponseTime >= serverStartTime && new Date() < new Date(lastResponseTime.getTime() + 60 * 60 * 1000);
-  if (isManualResponseActive) {
-    console.log('Respuesta manual activa, no se procesará el mensaje.');
     return;
   }
   const response = await sendMessageToN8n(msg.body, msg.from, tenantId);
@@ -468,18 +296,16 @@ client.on('message_create', async (msg) => {
     const sentMessage = await client.sendMessage(msg.from, finalResponse);
     botResponses.add(sentMessage.id._serialized);
     await supabase.from('messages').insert([{ body: finalResponse, from: msg.from, recipient: msg.from, tenant_id: tenantId, is_outgoing: true, response_source: 'n8n', response_status: 'sent', created_at: new Date().toISOString() }]);
-    if (jsonResponse && (messageLower.includes('confirmo') || messageLower.includes('sí') || messageLower.includes('si'))) {
+    if (jsonResponse && (msg.body.toLowerCase().includes('confirmo') || msg.body.toLowerCase().includes('sí') || msg.body.toLowerCase().includes('si'))) {
       const product = Array.isArray(jsonResponse) ? jsonResponse[0] : jsonResponse;
       await registerOrder({ clientNumber: normalizedFrom, tenantId, productName: product.nombre, price: product.precio, size: product.tamano, clientName: 'Cliente', address: 'Dirección', paymentMethod: 'Pendiente' });
     }
   } else {
-    const errorMessage = 'Hubo un error al procesar tu mensaje. Un agente te va a contactar pronto.';
+    const errorMessage = 'Hubo un error al procesar tu mensaje.';
     const sentMessage = await client.sendMessage(msg.from, errorMessage);
     botResponses.add(sentMessage.id._serialized);
     await supabase.from('messages').insert([{ body: errorMessage, from: msg.from, recipient: msg.from, tenant_id: tenantId, is_outgoing: true, response_source: 'error', response_status: 'sent', created_at: new Date().toISOString() }]);
-    await notifyAdmin(tenantId, normalizedFrom, 'Error al procesar mensaje en n8n');
   }
-  await checkClientTimeout(msg.from, tenantId);
 });
 
 loadGlobalCatalog();
