@@ -13,14 +13,13 @@ RUN apt-get update && apt-get install -y \
     libgbm1 \
     libpango-1.0-0 \
     libcairo2 \
-    libasound2 \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 RUN which chromium || echo "Chromium no encontrado en /usr/bin/chromium" && \
     echo "Usando Chromium en: $(which chromium)"
 WORKDIR /app
 COPY package*.json ./
-RUN npm install puppeteer@^23.0.0 && npm install && npm list puppeteer
+RUN npm install puppeteer@23.0.0 --save-exact && npm install --legacy-peer-deps && npm list puppeteer
 COPY . .
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 EXPOSE 3000
