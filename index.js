@@ -7,7 +7,7 @@ const bodyParser = require('body-parser');
 const axios = require('axios');
 const qrcode = require('qrcode-terminal');
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 let globalCatalog = null;
 
@@ -309,6 +309,29 @@ client.on('message_create', async (msg) => {
 });
 
 loadGlobalCatalog();
+
+async function getSession() {
+  const { data, error } = await supabase
+    .storage.from(process.env.SESSION_BUCKET)
+    .download(process.env.SESSION_FILE);
+  if (error || !data) return null;
+  return JSON.parse(await data.text());
+}
+
+async function saveSession(session) {
+  await supabase
+    .storage.from(process.env.SESSION_BUCKET)
+    .upload(process.env.SESSION_FILE, Buffer.from(JSON.stringify(session)), { upsert: true });
+}
+
+// Al crear el client:
+const session = await getSession();
+const client = new Client({
+  session,         // legacy session
+  puppeteer: { /* tus args aquí */ }
+});
+
+client.on('authenticated', session => saveSession(session));
 
 client.initialize().catch((error) => {
   console.error('Error al inicializar el cliente de WhatsApp:', error.message);
