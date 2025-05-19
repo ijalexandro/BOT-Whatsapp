@@ -256,10 +256,23 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
     }
   });
 
-  client.on('authenticated', sess => {
-    console.log('✅ Auth OK, guardo sesión');
-    saveSession(sess).catch(e => console.error('❌ Guardar sesión:', e.message));
-  });
+client.on('authenticated', async (sess) => {
+  try {
+    console.log('✅ Auth OK, guardando sesión en Supabase Storage...');
+    await saveSession(sess);
+    console.log('✅ Sesión guardada correctamente en Supabase Storage');
+    // Lee la sesión recién guardada para verificar
+    const sesionGuardada = await getSession();
+    if (sesionGuardada) {
+      console.log('🔍 Sesión leída luego de guardar:', sesionGuardada);
+    } else {
+      console.log('❌ No se pudo leer la sesión guardada');
+    }
+  } catch (e) {
+    console.error('❌ Error guardando sesión:', e.message);
+  }
+});
+
   client.on('auth_failure', msg => console.error('❌ Auth falló:', msg));
   client.on('ready', () => console.log('🤖 Bot listo y conectado'));
   client.on('disconnected', () => {
@@ -309,17 +322,15 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
     }
 
     // guardo entrante
-    await supabase
+    const { error: errorEntrada } = await supabase
       .from('messages')
-      .insert([{
-        body: msg.body,
-        from: msg.from,
-        tenant_id: tenantId,
-        is_outgoing: false,
-        created_at: new Date().toISOString()
-      }]);
-    console.log('Mensaje guardado en DB');
-
+      .insert([{ ... }]);
+    if (errorEntrada) {
+      console.error('❌ Error guardando mensaje entrante:', errorEntrada.message);
+    } else {
+      console.log('✅ Mensaje entrante guardado en DB');
+    }
+    
     const resp = await sendMessageToN8n(msg.body, msg.from, tenantId);
     if (resp && resp.reply) {
       let final = resp.reply;
@@ -345,18 +356,15 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
 
       const sent = await client.sendMessage(msg.from, final);
       botResponses.add(sent.id._serialized);
-      await supabase
+      const { error: errorSalida } = await supabase
         .from('messages')
-        .insert([{
-          body: final,
-          from: msg.from,
-          recipient: msg.from,
-          tenant_id: tenantId,
-          is_outgoing: true,
-          response_source: 'n8n',
-          response_status: 'sent',
-          created_at: new Date().toISOString()
-        }]);
+        .insert([{ ... }]);
+      if (errorSalida) {
+        console.error('❌ Error guardando mensaje de salida:', errorSalida.message);
+      } else {
+        console.log('✅ Mensaje de respuesta guardado en DB');
+      }
+
 
       // si confirma, registro pedido
       if (jsonResp && /si|sí|confirmo/i.test(msg.body)) {
