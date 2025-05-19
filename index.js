@@ -7,7 +7,10 @@ const bodyParser = require('body-parser');
 const axios = require('axios');
 const qrcode = require('qrcode-terminal');
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 let globalCatalog = null;
 
@@ -33,43 +36,26 @@ async function loadGlobalCatalog() {
   }
 }
 
-const client = new Client({
-  puppeteer: {
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-gpu',
-      '--disable-dev-shm-usage',
-      '--no-zygote',
-      '--disable-background-networking',
-      '--disable-background-timer-throttling',
-      '--disable-breakpad',
-      '--disable-client-side-phishing-detection',
-      '--disable-default-apps',
-      '--disable-extensions',
-      '--disable-hang-monitor',
-      '--disable-prompt-on-repost',
-      '--disable-sync',
-      '--disable-translate',
-      '--metrics-recording-only',
-      '--no-first-run',
-      '--safebrowsing-disable-auto-update',
-      '--disable-features=TranslateUI',
-      '--enable-features=NetworkService',
-      '--ignore-certificate-errors',
-      '--disable-software-rasterizer',
-      '--disable-accelerated-2d-canvas',
-      '--disable-audio-output',
-      '--single-process',
-      '--disable-notifications'
-    ],
-    headless: 'new',
-    ignoreHTTPSErrors: true,
-    dumpio: true,
-    timeout: 60000
-  }
-});
+// ————— Persistencia de sesión WhatsApp —————
+async function getSession() {
+  const { data, error } = await supabase
+    .storage
+    .from(process.env.SESSION_BUCKET)
+    .download(process.env.SESSION_FILE);
+  if (error || !data) return null;
+  return JSON.parse(await data.text());
+}
+
+async function saveSession(sess) {
+  await supabase
+    .storage
+    .from(process.env.SESSION_BUCKET)
+    .upload(
+      process.env.SESSION_FILE,
+      Buffer.from(JSON.stringify(sess)),
+      { upsert: true }
+    );
+}
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -98,59 +84,102 @@ async function validateAndCorrectResponse(response, tenantId) {
       parsedResponse = JSON.parse(jsonMatch[1]);
       textAfterJson = response.slice(jsonMatch[0].length).trim();
     } catch (error) {
-      console.error('Error al parsear el JSON dentro del bloque Markdown:', error.message);
+      console.error('Error al parsear JSON en bloque:', error.message);
       return { response: { mensaje: response }, textAfterJson: '', corrected: false };
     }
   } else {
     try {
       parsedResponse = JSON.parse(response);
     } catch (error) {
-      console.error('Error al parsear la respuesta como JSON:', error.message);
+      console.error('Error al parsear JSON:', error.message);
       return { response: { mensaje: response }, textAfterJson: '', corrected: false };
     }
   }
-  if (parsedResponse.respuesta) return { response: { mensaje: parsedResponse.respuesta }, textAfterJson: textAfterJson || '', corrected: false };
-  if (parsedResponse.error) return { response: parsedResponse, textAfterJson: '', corrected: false };
+  if (parsedResponse.respuesta) {
+    return { response: { mensaje: parsedResponse.respuesta }, textAfterJson, corrected: false };
+  }
+  if (parsedResponse.error) {
+    return { response: parsedResponse, textAfterJson: '', corrected: false };
+  }
   const catalog = await getCatalogData(tenantId);
   if (Array.isArray(parsedResponse)) {
     const correctedResponse = [];
     let hasCorrections = false;
     for (const product of parsedResponse) {
-      const catalogProduct = catalog.find(p => p.nombre === product.nombre && p.tamano === product.tamano);
-      if (!catalogProduct) return { error: `El producto ${product.nombre} no existe en el catálogo.`, textAfterJson: '', corrected: false };
-      const correctedProduct = { ...product };
+      const catalogProduct = catalog.find(
+        p => p.nombre === product.nombre && p.tamano === product.tamano
+      );
+      if (!catalogProduct) {
+        return { error: `El producto ${product.nombre} no existe en el catálogo.`, textAfterJson: '', corrected: false };
+      }
+      const cp = { ...product };
       let productCorrected = false;
-      if (product.precio !== catalogProduct.precio) { correctedProduct.precio = catalogProduct.precio; productCorrected = true; }
-      if (product.ingredientes !== catalogProduct.descripcion) { correctedProduct.ingredientes = catalogProduct.descripcion; productCorrected = true; }
-      if (product.foto_url !== catalogProduct.foto_url) { correctedProduct.foto_url = catalogProduct.foto_url; productCorrected = true; }
-      correctedResponse.push(correctedProduct);
+      if (product.precio !== catalogProduct.precio) {
+        cp.precio = catalogProduct.precio;
+        productCorrected = true;
+      }
+      if (product.ingredientes !== catalogProduct.descripcion) {
+        cp.ingredientes = catalogProduct.descripcion;
+        productCorrected = true;
+      }
+      if (product.foto_url !== catalogProduct.foto_url) {
+        cp.foto_url = catalogProduct.foto_url;
+        productCorrected = true;
+      }
+      correctedResponse.push(cp);
       if (productCorrected) hasCorrections = true;
     }
     return { response: correctedResponse, textAfterJson, corrected: hasCorrections };
   } else {
-    const catalogProduct = catalog.find(p => p.nombre === parsedResponse.nombre && p.tamano === parsedResponse.tamano);
-    if (!catalogProduct) return { error: `El producto ${parsedResponse.nombre} no existe en el catálogo.`, textAfterJson: '', corrected: false };
-    const correctedResponse = { ...parsedResponse };
+    const catalogProduct = catalog.find(
+      p => p.nombre === parsedResponse.nombre && p.tamano === parsedResponse.tamano
+    );
+    if (!catalogProduct) {
+      return { error: `El producto ${parsedResponse.nombre} no existe en el catálogo.`, textAfterJson: '', corrected: false };
+    }
+    const cp = { ...parsedResponse };
     let hasCorrections = false;
-    if (parsedResponse.precio !== catalogProduct.precio) { correctedResponse.precio = catalogProduct.precio; hasCorrections = true; }
-    if (parsedResponse.ingredientes !== catalogProduct.descripcion) { correctedResponse.ingredientes = catalogProduct.descripcion; hasCorrections = true; }
-    if (parsedResponse.foto_url !== catalogProduct.foto_url) { correctedResponse.foto_url = catalogProduct.foto_url; hasCorrections = true; }
-    return { response: correctedResponse, textAfterJson, corrected: hasCorrections };
+    if (parsedResponse.precio !== catalogProduct.precio) {
+      cp.precio = catalogProduct.precio;
+      hasCorrections = true;
+    }
+    if (parsedResponse.ingredientes !== catalogProduct.descripcion) {
+      cp.ingredientes = catalogProduct.descripcion;
+      hasCorrections = true;
+    }
+    if (parsedResponse.foto_url !== catalogProduct.foto_url) {
+      cp.foto_url = catalogProduct.foto_url;
+      hasCorrections = true;
+    }
+    return { response: cp, textAfterJson, corrected: hasCorrections };
   }
 }
 
 async function registerOrder({ clientNumber, tenantId, productName, price, size, clientName, address, paymentMethod }) {
-  let normalizedPrice = typeof price === 'string' ? parseFloat(price.replace(/[^0-9.]/g, '')) : parseFloat(price);
+  let normalizedPrice = typeof price === 'string'
+    ? parseFloat(price.replace(/[^0-9.]/g, ''))
+    : parseFloat(price);
   if (isNaN(normalizedPrice)) {
-    console.error('Error: El precio no es un número válido:', price);
-    return { success: false, error: 'El precio no es válido.' };
+    console.error('Precio no válido:', price);
+    return { success: false, error: 'Precio no válido.' };
   }
   const { data, error } = await supabase
     .from('pedidos')
-    .insert([{ client_number: clientNumber, tenant_id: tenantId, product_name: productName, price: normalizedPrice, size, client_name: clientName, address, payment_method: paymentMethod, status: 'pendiente', created_at: new Date().toISOString() }])
+    .insert([{
+      client_number: clientNumber,
+      tenant_id: tenantId,
+      product_name: productName,
+      price: normalizedPrice,
+      size,
+      client_name: clientName,
+      address,
+      payment_method: paymentMethod,
+      status: 'pendiente',
+      created_at: new Date().toISOString()
+    }])
     .select();
   if (error) {
-    console.error('Error al registrar el pedido:', error.message);
+    console.error('Error al registrar pedido:', error.message);
     return { success: false, error: error.message };
   }
   console.log('Pedido registrado:', data);
@@ -159,267 +188,222 @@ async function registerOrder({ clientNumber, tenantId, productName, price, size,
 
 async function sendMessageToN8n(message, clientNumber, tenantId) {
   try {
-    const { data: messages, error: messagesError } = await supabase
+    const { data: msgs, error: msgsErr } = await supabase
       .from('messages')
       .select('body, is_outgoing')
       .eq('from', clientNumber)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(2);
-    if (messagesError) {
-      console.error('Error al obtener historial de conversación:', messagesError.message);
-      return { error: true, message: 'Error al procesar el mensaje.' };
+    if (msgsErr) {
+      console.error('Error historial:', msgsErr.message);
+      return { error: true, message: 'Error historia.' };
     }
-    const conversationHistory = messages
-      .reverse()
-      .map(msg => `${msg.is_outgoing ? 'Asistente' : 'Cliente'}: ${msg.body}`)
-      .join('\n');
-    console.log('Enviando solicitud a n8n:', { message, clientNumber: normalizeWhatsappNumber(clientNumber), conversationHistory: conversationHistory || 'No hay historial previo.' });
-    const response = await axios.post(process.env.N8N_WEBHOOK_URL, { message, clientNumber: normalizeWhatsappNumber(clientNumber), conversationHistory: conversationHistory || 'No hay historial previo.' });
-    console.log('Respuesta recibida de n8n:', response.data);
-    return response.data;
-  } catch (error) {
-    console.error('Error enviando a n8n:', error.message);
-    return { error: true, message: 'Error al procesar el mensaje.' };
+    const history = msgs.reverse().map(m =>
+      `${m.is_outgoing ? 'Asistente' : 'Cliente'}: ${m.body}`
+    ).join('\n');
+    console.log('Enviando a n8n:', { message, clientNumber: normalizeWhatsappNumber(clientNumber), history });
+    const r = await axios.post(
+      process.env.N8N_WEBHOOK_URL,
+      { message, clientNumber: normalizeWhatsappNumber(clientNumber), conversationHistory: history || 'No hay historial.' }
+    );
+    console.log('Recibido de n8n:', r.data);
+    return r.data;
+  } catch (err) {
+    console.error('Error enviando a n8n:', err.message);
+    return { error: true, message: 'Error al procesar.' };
   }
 }
 
-client.on('qr', (qr) => {
-  console.log('\n📱 Escaneá este código QR desde WhatsApp Web:');
-  console.log('\n' + (qr || 'No se pudo generar el QR, intenta de nuevo.') + '\n');
-  console.log('Podés copiarlo y usar un generador QR como https://www.qr-code-generator.com/');
-});
-
-client.on('authenticated', async () => {
-  console.log('✅ Autenticado en WhatsApp con éxito.');
-});
-
-client.on('auth_failure', (msg) => {
-  console.error('❌ Fallo de autenticación:', msg);
-});
-
-client.on('ready', () => {
-  console.log('🤖 Bot listo y conectado a WhatsApp.');
-  console.log('Uso de memoria después de conectar:', process.memoryUsage());
-});
-
-client.on('disconnected', (reason) => {
-  console.log('🔌 Cliente desconectado:', reason);
-  console.log('Intentando reiniciar en 5 segundos...');
-  setTimeout(() => client.initialize(), 5000);
-});
-
-client.on('error', (error) => {
-  console.error('Error en el cliente de WhatsApp:', error.message);
-  if (error.message.includes('ENOENT') || error.message.includes('TimeoutError')) {
-    console.log('Error detectado, reiniciando en 5 segundos...');
-    setTimeout(() => client.initialize(), 5000);
-  }
-});
-
-client.on('message_create', async (msg) => {
-  console.log('Evento message_create disparado:', msg.body);
-  console.log('Uso de memoria al recibir mensaje:', process.memoryUsage());
-  const messageId = msg.id._serialized;
-  if (processedMessages.has(messageId)) {
-    console.log('Mensaje ya procesado:', messageId);
-    return;
-  }
-  processedMessages.add(messageId);
-  setTimeout(() => processedMessages.delete(messageId), 5 * 60 * 1000);
-  let tenantId = 1;
-  const normalizedFrom = normalizeWhatsappNumber(msg.from);
-  const normalizedTo = normalizeWhatsappNumber(msg.to);
-  if (normalizedFrom === '5491135907587') {
-    const { data: tenant } = await supabase
-      .from('tenants')
-      .select('id')
-      .eq('whatsapp_number', normalizedFrom)
-      .single();
-    tenantId = tenant?.id || 1;
-  } else if (normalizedTo === '5491135907587') {
-    const { data: tenant } = await supabase
-      .from('tenants')
-      .select('id')
-      .eq('whatsapp_number', normalizedTo)
-      .single();
-    tenantId = tenant?.id || 1;
-  }
-  if (msg.fromMe || normalizedFrom === '5491135907587') {
-    if (botResponses.has(messageId)) {
-      console.log('Ignorando mensaje enviado por el bot:', msg.body);
-      return;
-    }
-    console.log('Registrando mensaje manual del comercio:', msg.body);
-    const { data: savedManualMessage, error: saveError } = await supabase
-      .from('messages')
-      .insert([{ body: msg.body, from: msg.to, recipient: msg.to, tenant_id: tenantId, is_outgoing: true, response_source: 'manual', response_status: 'sent', created_at: new Date().toISOString() }])
-      .select();
-    if (saveError) {
-      console.error('Error al guardar mensaje manual:', saveError.message);
-    } else {
-      console.log('Mensaje manual guardado:', savedManualMessage);
-    }
-    return;
-  }
-  console.log('📨 Mensaje recibido:', msg.body);
-  const { data: savedMessage, error: saveError } = await supabase
-    .from('messages')
-    .insert([{ body: msg.body, from: msg.from, tenant_id: tenantId, is_outgoing: false, created_at: new Date().toISOString() }])
-    .select();
-  if (saveError) {
-    console.error('Error al guardar mensaje entrante:', saveError.message);
-    return;
-  }
-  const response = await sendMessageToN8n(msg.body, msg.from, tenantId);
-  if (response && response.reply) {
-    let finalResponse = response.reply;
-    let jsonResponse = null;
-    if (response.reply.includes('```json')) {
-      const validationResult = await validateAndCorrectResponse(response.reply, tenantId);
-      if (validationResult.response?.error) {
-        finalResponse = 'Lo siento, no encontré ese producto en el catálogo. ¿Querés probar con otra opción?';
-      } else if (validationResult.response?.mensaje) {
-        finalResponse = validationResult.response.mensaje;
-        if (validationResult.textAfterJson) finalResponse += `\n\n${validationResult.textAfterJson}`;
-      } else {
-        const correctedResponse = validationResult.response;
-        if (Array.isArray(correctedResponse)) {
-          finalResponse = correctedResponse.map(product => `Te recomiendo la ${product.nombre} (${product.tamano}):\nIngredientes: ${product.ingredientes}\nPrecio: ${product.precio}`).join('\n\n') + '\n\n¿Querés que te las reserve?';
-        } else {
-          finalResponse = `Te recomiendo la ${correctedResponse.nombre} (${correctedResponse.tamano}):\nIngredientes: ${correctedResponse.ingredientes}\nPrecio: ${correctedResponse.precio}\n\n¿Querés que te la reserve?`;
-        }
-        if (validationResult.textAfterJson) finalResponse += `\n\n${validationResult.textAfterJson}`;
-        jsonResponse = correctedResponse;
-      }
-    }
-    const sentMessage = await client.sendMessage(msg.from, finalResponse);
-    botResponses.add(sentMessage.id._serialized);
-    await supabase.from('messages').insert([{ body: finalResponse, from: msg.from, recipient: msg.from, tenant_id: tenantId, is_outgoing: true, response_source: 'n8n', response_status: 'sent', created_at: new Date().toISOString() }]);
-    if (jsonResponse && (msg.body.toLowerCase().includes('confirmo') || msg.body.toLowerCase().includes('sí') || msg.body.toLowerCase().includes('si'))) {
-      const product = Array.isArray(jsonResponse) ? jsonResponse[0] : jsonResponse;
-      await registerOrder({ clientNumber: normalizedFrom, tenantId, productName: product.nombre, price: product.precio, size: product.tamano, clientName: 'Cliente', address: 'Dirección', paymentMethod: 'Pendiente' });
-    }
-  } else {
-    const errorMessage = 'Hubo un error al procesar tu mensaje.';
-    const sentMessage = await client.sendMessage(msg.from, errorMessage);
-    botResponses.add(sentMessage.id._serialized);
-    await supabase.from('messages').insert([{ body: errorMessage, from: msg.from, recipient: msg.from, tenant_id: tenantId, is_outgoing: true, response_source: 'error', response_status: 'sent', created_at: new Date().toISOString() }]);
-  }
-});
-
-loadGlobalCatalog();
-
-async function getSession() {
-  const { data, error } = await supabase
-    .storage.from(process.env.SESSION_BUCKET)
-    .download(process.env.SESSION_FILE);
-  if (error || !data) return null;
-  return JSON.parse(await data.text());
-}
-
-async function saveSession(session) {
-  await supabase
-    .storage.from(process.env.SESSION_BUCKET)
-    .upload(process.env.SESSION_FILE, Buffer.from(JSON.stringify(session)), { upsert: true });
-}
-
-// Al crear el client:
-(async () => {
+;(async () => {
+  // Cargo sesión
   const legacySession = await getSession();
 
   const client = new Client({
-    session: legacySession,    // <- carga la sesión si existe
+    session: legacySession || undefined,
     puppeteer: {
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-gpu',
+        '--disable-dev-shm-usage',
+        '--no-zygote',
+        '--disable-background-networking',
+        '--disable-background-timer-throttling',
+        '--disable-breakpad',
+        '--disable-extensions',
+        '--disable-hang-monitor',
+        '--disable-prompt-on-repost',
+        '--disable-sync',
+        '--disable-translate',
+        '--metrics-recording-only',
+        '--no-first-run',
+        '--safebrowsing-disable-auto-update',
+        '--disable-features=TranslateUI',
+        '--enable-features=NetworkService',
+        '--ignore-certificate-errors',
+        '--disable-software-rasterizer',
+        '--disable-accelerated-2d-canvas',
+        '--disable-audio-output',
+        '--single-process',
+        '--disable-notifications'
+      ],
       headless: 'new',
-      args: [ /* …tus flags… */ ],
       ignoreHTTPSErrors: true,
       dumpio: true,
+      timeout: 60000
     }
   });
 
   client.on('authenticated', sess => {
     console.log('✅ Auth OK, guardo sesión');
-    saveSession(sess);
+    saveSession(sess).catch(e => console.error('❌ Guardar sesión:', e.message));
   });
-
-client.on('ready', () => console.log('🤖 Bot listo'));
   client.on('auth_failure', msg => console.error('❌ Auth falló:', msg));
+  client.on('ready', () => console.log('🤖 Bot listo y conectado'));
   client.on('disconnected', () => {
     console.log('🔌 Desconectado, reinicio…');
     client.initialize();
   });
+  client.on('error', e => console.error('Error cliente WhatsApp:', e.message));
 
-  // …todos tus client.on('message_create', …) aquí…
+  // Manejador de mensajes entrantes
+  client.on('message_create', async msg => {
+    console.log('Evento message_create:', msg.body);
+    const messageId = msg.id._serialized;
+    if (processedMessages.has(messageId)) return;
+    processedMessages.add(messageId);
+    setTimeout(() => processedMessages.delete(messageId), 5 * 60 * 1000);
 
-  await client.initialize();
+    let tenantId = 1;
+    const from = normalizeWhatsappNumber(msg.from);
+    const to   = normalizeWhatsappNumber(msg.to);
+    if (from === '5491135907587' || to === '5491135907587') {
+      const field = from === '5491135907587' ? 'whatsapp_number' : 'whatsapp_number';
+      const val = normalizeWhatsappNumber(from === '5491135907587' ? msg.from : msg.to);
+      const { data: t } = await supabase
+        .from('tenants')
+        .select('id')
+        .eq(field, val)
+        .single();
+      tenantId = t?.id || 1;
+    }
 
-  app.post('/send-message', async (req, res) => {
-  const { to, body } = req.body;
-  try {
-    // 1) mandás el mensaje por WhatsApp
-    const sentMessage = await client.sendMessage(to, body);
+    if (msg.fromMe || from === '5491135907587') {
+      if (botResponses.has(messageId)) return;
+      const manual = await supabase
+        .from('messages')
+        .insert([{
+          body: msg.body,
+          from: msg.to,
+          recipient: msg.to,
+          tenant_id: tenantId,
+          is_outgoing: true,
+          response_source: 'manual',
+          response_status: 'sent',
+          created_at: new Date().toISOString()
+        }]);
+      console.log('Mensaje manual guardado:', manual.data);
+      return;
+    }
 
-    // 2) lo guardás en tu tabla messages
+    // guardo entrante
     await supabase
       .from('messages')
       .insert([{
-        body,
-        from: to,               // ojo: el "to" del webhook es "from" para la DB
-        recipient: to,
-        tenant_id: 1,           // o el tenantId que corresponda
-        is_outgoing: true,
-        response_source: 'n8n',
-        response_status: 'sent',
-        created_at: new Date().toISOString(),
+        body: msg.body,
+        from: msg.from,
+        tenant_id: tenantId,
+        is_outgoing: false,
+        created_at: new Date().toISOString()
       }]);
+    console.log('Mensaje guardado en DB');
 
-    // 3) devolvés algo a n8n (no hace falta reply aquí)
-    return res.json({ status: 'enviado' });
-  } catch (error) {
-    console.error('Error en /send-message:', error);
-    return res.status(500).json({ status: 'error', message: error.message });
-  }
-});
-  
-  app.listen(port, () => {
-    console.log(`🚀 Express en puerto ${port}`);
+    const resp = await sendMessageToN8n(msg.body, msg.from, tenantId);
+    if (resp && resp.reply) {
+      let final = resp.reply;
+      let jsonResp = null;
+      if (resp.reply.includes('```json')) {
+        const vr = await validateAndCorrectResponse(resp.reply, tenantId);
+        if (vr.response?.error) {
+          final = 'Lo siento, no encontré ese producto. ¿Querés probar otra?';
+        } else if (vr.response?.mensaje) {
+          final = vr.response.mensaje;
+          if (vr.textAfterJson) final += `\n\n${vr.textAfterJson}`;
+        } else {
+          const cr = vr.response;
+          if (Array.isArray(cr)) {
+            final = cr.map(p => `Recomiendo: ${p.nombre} (${p.tamano}) – $${p.precio}`).join('\n');
+          } else {
+            final = `Recomiendo: ${cr.nombre} – $${cr.precio}`;
+          }
+          if (vr.textAfterJson) final += `\n\n${vr.textAfterJson}`;
+          jsonResp = cr;
+        }
+      }
+
+      const sent = await client.sendMessage(msg.from, final);
+      botResponses.add(sent.id._serialized);
+      await supabase
+        .from('messages')
+        .insert([{
+          body: final,
+          from: msg.from,
+          recipient: msg.from,
+          tenant_id: tenantId,
+          is_outgoing: true,
+          response_source: 'n8n',
+          response_status: 'sent',
+          created_at: new Date().toISOString()
+        }]);
+
+      // si confirma, registro pedido
+      if (jsonResp && /si|sí|confirmo/i.test(msg.body)) {
+        const pr = Array.isArray(jsonResp) ? jsonResp[0] : jsonResp;
+        await registerOrder({
+          clientNumber: normalizeWhatsappNumber(msg.from),
+          tenantId,
+          productName: pr.nombre,
+          price: pr.precio,
+          size: pr.tamano,
+          clientName: 'Cliente',
+          address: 'Dirección',
+          paymentMethod: 'Pendiente'
+        });
+      }
+    } else {
+      const errMsg = 'Hubo un error procesando tu mensaje.';
+      await client.sendMessage(msg.from, errMsg);
+    }
   });
+
+  loadGlobalCatalog();
+
+  // Ruta para enviar desde n8n
+  app.post('/send-message', async (req, res) => {
+    const { to, body } = req.body;
+    try {
+      const sent = await client.sendMessage(to, body);
+      await supabase
+        .from('messages')
+        .insert([{
+          body,
+          from: to,
+          recipient: to,
+          tenant_id: 1,
+          is_outgoing: true,
+          response_source: 'n8n',
+          response_status: 'sent',
+          created_at: new Date().toISOString()
+        }]);
+      return res.json({ status: 'enviado' });
+    } catch (error) {
+      console.error('Error en /send-message:', error.message);
+      return res.status(500).json({ status: 'error', message: error.message });
+    }
+  });
+
+  await client.initialize();
+  app.listen(port, () => console.log(`🚀 Express en puerto ${port}`));
 })();
-  
-
-client.initialize().catch((error) => {
-  console.error('Error al inicializar el cliente de WhatsApp:', error.message);
-  if (error.message.includes('ENOENT') || error.message.includes('TimeoutError')) {
-    console.log('Error detectado, reiniciando en 5 segundos...');
-    setTimeout(() => client.initialize(), 5000);
-  }
-});
-
-app.listen(port, () => {
-  console.log(`🚀 Servidor Express corriendo en puerto ${port}`);
-});
-
-process.on('uncaughtException', (error) => {
-  console.error('Excepción no manejada:', error.message, error.stack);
-  if (error.message.includes('TimeoutError')) {
-    console.log('Timeout detectado, reiniciando en 5 segundos...');
-    setTimeout(() => client.initialize(), 5000);
-  }
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Rechazo no manejado en:', promise, 'Razón:', reason);
-  if (reason.message.includes('TimeoutError')) {
-    console.log('Timeout detectado, reiniciando en 5 segundos...');
-    setTimeout(() => client.initialize(), 5000);
-  }
-});
-
-process.on('SIGTERM', () => {
-  console.log('Recibida señal SIGTERM. Cerrando el cliente de WhatsApp...');
-  client.destroy().then(() => {
-    console.log('Cliente de WhatsApp cerrado. Terminando proceso...');
-    process.exit(0);
-  });
-});
