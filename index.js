@@ -45,7 +45,7 @@ async function getSession() {
       .from(process.env.SESSION_BUCKET)
       .download(process.env.SESSION_FILE);
     if (error) {
-      console.error('❌ Error descargando sesión:', error.message, error.code);
+      console.error('❌ Error descargando sesión:', error.message, error.code, error.details);
       return null;
     }
     const sessionData = JSON.parse(await data.text());
@@ -73,7 +73,7 @@ async function saveSession(session) {
       throw error;
     }
     console.log('✅ Sesión guardada correctamente en Supabase Storage');
-    // Verificar que se guardó correctamente
+    // Verificar que se guardó
     const { data: testData, error: testError } = await supabase
       .storage
       .from(process.env.SESSION_BUCKET)
@@ -84,7 +84,7 @@ async function saveSession(session) {
       console.log('✅ Sesión verificada en Storage:', (await testData.text()).slice(0, 100) + '...');
     }
   } catch (err) {
-    console.error('❌ Excepción en saveSession:', err.message);
+    console.error('❌ Excepción en saveSession:', err.message, err.stack);
   }
 }
 
@@ -300,35 +300,35 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
   });
 
   client.on('qr', qr => {
-    console.log('⚠️ Nuevo QR generado. Esto no debería pasar si la sesión persiste.');
+    console.log('⚠️ Nuevo QR generado. Esto no debería pasar si la sesión persiste:', new Date().toISOString());
     qrcode.generate(qr, { small: true });
   });
 
   client.on('authenticated', async (session) => {
     try {
-      console.log('✅ Autenticado correctamente, guardando sesión...');
+      console.log('✅ Autenticado correctamente, intentando guardar sesión...', new Date().toISOString());
       await saveSession(session);
-      console.log('✅ Sesión guardada en Supabase Storage');
+      console.log('✅ Sesión guardada en Supabase Storage', new Date().toISOString());
     } catch (err) {
-      console.error('❌ Error guardando sesión:', err.message);
+      console.error('❌ Error guardando sesión:', err.message, err.stack, new Date().toISOString());
     }
   });
 
   client.on('auth_failure', msg => {
-    console.error('❌ Autenticación falló:', msg);
+    console.error('❌ Autenticación falló:', msg, new Date().toISOString());
   });
 
   client.on('ready', () => {
-    console.log('✅ WhatsApp listo.');
+    console.log('✅ WhatsApp listo.', new Date().toISOString());
   });
 
   client.on('disconnected', () => {
-    console.log('🔌 Desconectado, reiniciando...');
+    console.log('🔌 Desconectado, reiniciando...', new Date().toISOString());
     client.initialize();
   });
 
   client.on('error', err => {
-    console.error('❌ Error en cliente WhatsApp:', err.message);
+    console.error('❌ Error en cliente WhatsApp:', err.message, new Date().toISOString());
   });
 
   // Manejador de mensajes entrantes
@@ -344,7 +344,7 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
 
       const messageId = msg.id._serialized;
       if (processedMessages.has(messageId)) {
-        console.log('🔄 Mensaje ya procesado, ignorando:', messageId);
+        console.log('🔄 Mensaje ya procesado, ignorando:', messageId, new Date().toISOString());
         return;
       }
       processedMessages.add(messageId);
@@ -352,14 +352,13 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
 
       const from = normalizeWhatsappNumber(msg.from);
       const to = normalizeWhatsappNumber(msg.to);
-      const tenantId = 1; // Fijo, ya que no usamos tenant_id en messages
 
       if (msg.fromMe || from === '5491135907587') {
         if (botResponses.has(messageId)) {
-          console.log('🤖 Mensaje de bot ya registrado, ignorando:', messageId);
+          console.log('🤖 Mensaje de bot ya registrado, ignorando:', messageId, new Date().toISOString());
           return;
         }
-        console.log('📤 Guardando mensaje saliente manual...');
+        console.log('📤 Guardando mensaje saliente manual...', new Date().toISOString());
         const { data, error } = await supabase
           .from('messages')
           .insert([{
@@ -371,15 +370,15 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
           }])
           .select();
         if (error) {
-          console.error('❌ Error guardando mensaje saliente manual:', error.message, error.details);
+          console.error('❌ Error guardando mensaje saliente manual:', error.message, error.details, new Date().toISOString());
         } else {
-          console.log('✅ Mensaje saliente manual guardado:', data);
+          console.log('✅ Mensaje saliente manual guardado:', data, new Date().toISOString());
         }
         return;
       }
 
       // Guardar mensaje entrante
-      console.log('📥 Guardando mensaje entrante...');
+      console.log('📥 Guardando mensaje entrante...', new Date().toISOString());
       const { data: entradaData, error: entradaError } = await supabase
         .from('messages')
         .insert([{
@@ -391,18 +390,18 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
         }])
         .select();
       if (entradaError) {
-        console.error('❌ Error guardando mensaje entrante:', entradaError.message, entradaError.details);
+        console.error('❌ Error guardando mensaje entrante:', entradaError.message, entradaError.details, new Date().toISOString());
       } else {
-        console.log('🗄️ Mensaje entrante guardado en DB:', entradaData);
+        console.log('🗄️ Mensaje entrante guardado en DB:', entradaData, new Date().toISOString());
       }
 
       // Enviar a n8n y procesar respuesta
-      const resp = await sendMessageToN8n(msg.body, msg.from, tenantId);
+      const resp = await sendMessageToN8n(msg.body, msg.from, 1); // tenantId fijo
       if (resp && resp.reply) {
         let final = resp.reply;
         let jsonResp = null;
         if (resp.reply.includes('```json')) {
-          const vr = await validateAndCorrectResponse(resp.reply, tenantId);
+          const vr = await validateAndCorrectResponse(resp.reply, 1);
           if (vr.response?.error) {
             final = 'Lo siento, no encontré ese producto. ¿Querés probar otra?';
           } else if (vr.response?.mensaje) {
@@ -423,10 +422,10 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
         // Enviar respuesta al cliente
         const sent = await client.sendMessage(msg.from, final);
         botResponses.add(sent.id._serialized);
-        console.log('✔️ Mensaje enviado a', msg.from, ':', final);
+        console.log('✔️ Mensaje enviado a', msg.from, ':', final, new Date().toISOString());
 
         // Guardar respuesta del bot
-        console.log('📤 Guardando respuesta del bot...');
+        console.log('📤 Guardando respuesta del bot...', new Date().toISOString());
         const { data: salidaData, error: salidaError } = await supabase
           .from('messages')
           .insert([{
@@ -438,15 +437,15 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
           }])
           .select();
         if (salidaError) {
-          console.error('❌ Error guardando respuesta del bot:', salidaError.message, salidaError.details);
+          console.error('❌ Error guardando respuesta del bot:', salidaError.message, salidaError.details, new Date().toISOString());
           console.error('Datos enviados:', {
             whatsapp_from: msg.to,
             whatsapp_to: msg.from,
             texto: final,
             enviado_por_bot: true
-          });
+          }, new Date().toISOString());
         } else {
-          console.log('✅ Respuesta del bot guardada en DB:', salidaData);
+          console.log('✅ Respuesta del bot guardada en DB:', salidaData, new Date().toISOString());
         }
 
         // Registrar pedido si confirma
@@ -454,7 +453,7 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
           const pr = Array.isArray(jsonResp) ? jsonResp[0] : jsonResp;
           const orderResult = await registerOrder({
             clientNumber: normalizeWhatsappNumber(msg.from),
-            tenantId,
+            tenantId: 1,
             productName: pr.nombre,
             price: pr.precio,
             size: pr.tamano,
@@ -462,15 +461,15 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
             address: 'Dirección',
             paymentMethod: 'Pendiente'
           });
-          console.log('📦 Resultado de registro de pedido:', orderResult);
+          console.log('📦 Resultado de registro de pedido:', orderResult, new Date().toISOString());
         }
       } else {
         const errMsg = 'Hubo un error procesando tu mensaje.';
         await client.sendMessage(msg.from, errMsg);
-        console.log('⚠️ Enviado mensaje de error al cliente:', errMsg);
+        console.log('⚠️ Enviado mensaje de error al cliente:', errMsg, new Date().toISOString());
       }
     } catch (err) {
-      console.error('❌ Error en message_create:', err.message);
+      console.error('❌ Error en message_create:', err.message, err.stack, new Date().toISOString());
     }
   });
 
@@ -478,7 +477,7 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
   app.post('/send-message', async (req, res) => {
     const { to, body } = req.body;
     try {
-      console.log('📤 Recibida solicitud de n8n para enviar mensaje:', { to, body });
+      console.log('📤 Recibida solicitud de n8n para enviar mensaje:', { to, body }, new Date().toISOString());
       const sent = await client.sendMessage(to, body);
       const { data, error } = await supabase
         .from('messages')
@@ -491,18 +490,18 @@ async function sendMessageToN8n(message, clientNumber, tenantId) {
         }])
         .select();
       if (error) {
-        console.error('❌ Error guardando mensaje de n8n:', error.message, error.details);
+        console.error('❌ Error guardando mensaje de n8n:', error.message, error.details, new Date().toISOString());
       } else {
-        console.log('✅ Mensaje de n8n guardado:', data);
+        console.log('✅ Mensaje de n8n guardado:', data, new Date().toISOString());
       }
       return res.json({ status: 'enviado' });
     } catch (error) {
-      console.error('❌ Error en /send-message:', error.message);
+      console.error('❌ Error en /send-message:', error.message, new Date().toISOString());
       return res.status(500).json({ status: 'error', message: error.message });
     }
   });
 
   await loadGlobalCatalog();
   await client.initialize();
-  app.listen(port, () => console.log(`🚀 Express escuchando en puerto ${port}`));
+  app.listen(port, () => console.log(`🚀 Express escuchando en puerto ${port}`, new Date().toISOString()));
 })();
