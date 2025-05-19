@@ -353,6 +353,35 @@ client.on('ready', () => console.log('🤖 Bot listo'));
   // …todos tus client.on('message_create', …) aquí…
 
   await client.initialize();
+
+  app.post('/send-message', async (req, res) => {
+  const { to, body } = req.body;
+  try {
+    // 1) mandás el mensaje por WhatsApp
+    const sentMessage = await client.sendMessage(to, body);
+
+    // 2) lo guardás en tu tabla messages
+    await supabase
+      .from('messages')
+      .insert([{
+        body,
+        from: to,               // ojo: el "to" del webhook es "from" para la DB
+        recipient: to,
+        tenant_id: 1,           // o el tenantId que corresponda
+        is_outgoing: true,
+        response_source: 'n8n',
+        response_status: 'sent',
+        created_at: new Date().toISOString(),
+      }]);
+
+    // 3) devolvés algo a n8n (no hace falta reply aquí)
+    return res.json({ status: 'enviado' });
+  } catch (error) {
+    console.error('Error en /send-message:', error);
+    return res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+  
   app.listen(port, () => {
     console.log(`🚀 Express en puerto ${port}`);
   });
