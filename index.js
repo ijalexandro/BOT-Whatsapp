@@ -325,13 +325,39 @@ async function saveSession(session) {
 }
 
 // Al crear el client:
-const session = await getSession();
-const client = new Client({
-  session,         // legacy session
-  puppeteer: { /* tus args aquí */ }
-});
+(async () => {
+  const legacySession = await getSession();
 
-client.on('authenticated', session => saveSession(session));
+  const client = new Client({
+    session: legacySession,    // <- carga la sesión si existe
+    puppeteer: {
+      headless: 'new',
+      args: [ /* …tus flags… */ ],
+      ignoreHTTPSErrors: true,
+      dumpio: true,
+    }
+  });
+
+  client.on('authenticated', sess => {
+    console.log('✅ Auth OK, guardo sesión');
+    saveSession(sess);
+  });
+
+client.on('ready', () => console.log('🤖 Bot listo'));
+  client.on('auth_failure', msg => console.error('❌ Auth falló:', msg));
+  client.on('disconnected', () => {
+    console.log('🔌 Desconectado, reinicio…');
+    client.initialize();
+  });
+
+  // …todos tus client.on('message_create', …) aquí…
+
+  await client.initialize();
+  app.listen(port, () => {
+    console.log(`🚀 Express en puerto ${port}`);
+  });
+})();
+  
 
 client.initialize().catch((error) => {
   console.error('Error al inicializar el cliente de WhatsApp:', error.message);
