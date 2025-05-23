@@ -25,6 +25,7 @@ app.use(express.json());
 
 let whatsappClient, latestQr = null;
 let globalCatalog = null;
+let numeroDelComercio = null; // <<-- NUEVO
 
 async function loadSession() {
   console.log('📂 Intentando cargar sesión desde Supabase Storage...');
@@ -91,7 +92,13 @@ async function initWhatsApp() {
       console.log('--- QR RECEIVED ---');
       console.log(`🖼️  Escanea en tu navegador: ${BASE_URL}/qr`);
     }
-    if (connection === 'open') console.log('✅ WhatsApp listo');
+    if (connection === 'open') {
+      console.log('✅ WhatsApp listo');
+      if (client?.user?.id) {
+        numeroDelComercio = client.user.id;
+        console.log('📲 Número del comercio:', numeroDelComercio);
+      }
+    }
     if (connection === 'close') {
       const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== 401;
       if (shouldReconnect) initWhatsApp();
@@ -99,51 +106,45 @@ async function initWhatsApp() {
     }
   });
 
-client.ev.on('messages.upsert', async (m) => {
-  const msg = m.messages[0];
-  if (msg.message) {
-    const texto = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
-    const esCliente = !msg.key.fromMe;
+  client.ev.on('messages.upsert', async (m) => {
+    const msg = m.messages[0];
+    if (msg.message) {
+      const texto = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+      const esCliente = !msg.key.fromMe;
 
-    // Verifica si whatsappClient está inicializado correctamente
-    const numeroComercio = whatsappClient?.user?.id || 'bot@s.whatsapp.net'; // fallback de seguridad
-    const numeroCliente = msg.key.remoteJid;
+      const numeroCliente = msg.key.remoteJid;
+      const from = esCliente ? numeroCliente : numeroDelComercio;
+      const to = esCliente ? numeroDelComercio : numeroCliente;
 
-    const from = esCliente ? numeroCliente : numeroComercio;
-    const to = esCliente ? numeroComercio : numeroCliente;
-
-    try {
-      const { error } = await supabase
-        .from('mensajes')
-        .insert({
-          whatsapp_from: from,
-          whatsapp_to: to,
-          texto: texto,
-          enviado_por_bot: !esCliente
-        });
-      if (error) console.error('❌ Error guardando en DB:', error.message);
-      else console.log(`🗄️ Guardado: de ${from} a ${to}`);
-    } catch (err) {
-      console.error('❌ Excepción al guardar en DB:', err);
-    }
-
-    if (esCliente && texto) {
       try {
-        await fetch(N8N_WEBHOOK_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: numeroCliente, body: texto })
-        });
-        console.log('➡️ Mensaje enviado a n8n');
+        const { error } = await supabase
+          .from('mensajes')
+          .insert({
+            whatsapp_from: from,
+            whatsapp_to: to,
+            texto: texto,
+            enviado_por_bot: !esCliente
+          });
+        if (error) console.error('❌ Error guardando en DB:', error.message);
+        else console.log(`🗄️ Guardado: de ${from} a ${to}`);
       } catch (err) {
-        console.error('❌ Error forward a n8n:', err.message);
+        console.error('❌ Excepción al guardar en DB:', err);
+      }
+
+      if (esCliente && texto) {
+        try {
+          await fetch(N8N_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: numeroCliente, body: texto })
+          });
+          console.log('➡️ Mensaje enviado a n8n');
+        } catch (err) {
+          console.error('❌ Error forward a n8n:', err.message);
+        }
       }
     }
-  }
-});
-
-
-
+  });
 
   await loadGlobalCatalog();
   whatsappClient = client;
