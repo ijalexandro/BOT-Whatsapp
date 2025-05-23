@@ -101,6 +101,14 @@ async function initWhatsApp() {
 
   client.ev.on('messages.upsert', async (m) => {
   const msg = m.messages[0];
+    console.log('💬 Mensaje detectado:', {
+    remoteJid: msg.key.remoteJid,
+    fromMe: msg.key.fromMe,
+    participant: msg.key.participant,
+    texto: msg.message?.conversation || ''
+  });
+
+    
   // Si hay mensaje (entrada o salida)
   if (msg.message) {
     // Si tiene texto (podés ajustar para otros tipos de mensaje)
