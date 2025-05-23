@@ -1,4 +1,5 @@
 // src/index.js
+
 require('dotenv').config();
 const express = require('express');
 const fetch = global.fetch || require('node-fetch');
@@ -25,7 +26,7 @@ app.use(express.json());
 
 let whatsappClient, latestQr = null;
 let globalCatalog = null;
-let numeroDelComercio = null; // <<-- NUEVO
+let numeroComercio = null; // <--- ACA
 
 async function loadSession() {
   console.log('📂 Intentando cargar sesión desde Supabase Storage...');
@@ -93,11 +94,8 @@ async function initWhatsApp() {
       console.log(`🖼️  Escanea en tu navegador: ${BASE_URL}/qr`);
     }
     if (connection === 'open') {
-      console.log('✅ WhatsApp listo');
-      if (client?.user?.id) {
-        numeroDelComercio = client.user.id;
-        console.log('📲 Número del comercio:', numeroDelComercio);
-      }
+      numeroComercio = client.user.id; // <--- GUARDA ACA EL NRO DEL COMERCIO
+      console.log('✅ WhatsApp listo', numeroComercio);
     }
     if (connection === 'close') {
       const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== 401;
@@ -110,11 +108,13 @@ async function initWhatsApp() {
     const msg = m.messages[0];
     if (msg.message) {
       const texto = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
-      const esCliente = !msg.key.fromMe;
-
-      const numeroCliente = msg.key.remoteJid;
-      const from = esCliente ? numeroCliente : numeroDelComercio;
-      const to = esCliente ? numeroDelComercio : numeroCliente;
+      if (!numeroComercio) {
+        console.error('❌ numeroComercio no inicializado aún.');
+        return;
+      }
+      // Logica: de cliente al comercio, de comercio al cliente
+      const from = msg.key.fromMe ? numeroComercio : msg.key.remoteJid;
+      const to   = msg.key.fromMe ? msg.key.remoteJid : numeroComercio;
 
       try {
         const { error } = await supabase
@@ -123,7 +123,7 @@ async function initWhatsApp() {
             whatsapp_from: from,
             whatsapp_to: to,
             texto: texto,
-            enviado_por_bot: !esCliente
+            enviado_por_bot: msg.key.fromMe
           });
         if (error) console.error('❌ Error guardando en DB:', error.message);
         else console.log(`🗄️ Guardado: de ${from} a ${to}`);
@@ -131,12 +131,13 @@ async function initWhatsApp() {
         console.error('❌ Excepción al guardar en DB:', err);
       }
 
-      if (esCliente && texto) {
+      // Solo reenviá a n8n si es cliente → comercio
+      if (!msg.key.fromMe && texto) {
         try {
           await fetch(N8N_WEBHOOK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ from: numeroCliente, body: texto })
+            body: JSON.stringify({ from: from, body: texto })
           });
           console.log('➡️ Mensaje enviado a n8n');
         } catch (err) {
