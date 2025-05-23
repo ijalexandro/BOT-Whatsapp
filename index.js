@@ -104,20 +104,25 @@ client.ev.on('messages.upsert', async (m) => {
   if (msg.message) {
     const texto = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
     const esCliente = !msg.key.fromMe;
-    const numeroCliente = esCliente ? msg.key.remoteJid : msg.key.remoteJid;
-    const numeroComercio = esCliente ? whatsappClient.user.id : whatsappClient.user.id;
+
+    // Verifica si whatsappClient está inicializado correctamente
+    const numeroComercio = whatsappClient?.user?.id || 'bot@s.whatsapp.net'; // fallback de seguridad
+    const numeroCliente = msg.key.remoteJid;
+
+    const from = esCliente ? numeroCliente : numeroComercio;
+    const to = esCliente ? numeroComercio : numeroCliente;
 
     try {
       const { error } = await supabase
         .from('mensajes')
         .insert({
-          whatsapp_from: esCliente ? numeroCliente : numeroComercio,
-          whatsapp_to: esCliente ? numeroComercio : numeroCliente,
+          whatsapp_from: from,
+          whatsapp_to: to,
           texto: texto,
-          enviado_por_bot: !esCliente // TRUE si lo manda el comercio (bot o humano)
+          enviado_por_bot: !esCliente
         });
       if (error) console.error('❌ Error guardando en DB:', error.message);
-      else console.log('🗄️ Mensaje guardado en DB');
+      else console.log(`🗄️ Guardado: de ${from} a ${to}`);
     } catch (err) {
       console.error('❌ Excepción al guardar en DB:', err);
     }
@@ -136,6 +141,7 @@ client.ev.on('messages.upsert', async (m) => {
     }
   }
 });
+
 
 
 
