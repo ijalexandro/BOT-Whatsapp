@@ -101,23 +101,20 @@ async function initWhatsApp() {
 
 client.ev.on('messages.upsert', async (m) => {
   const msg = m.messages[0];
-  // Si hay mensaje (entrada o salida)
   if (msg.message) {
-    // Determinar números
-    const esCliente = !msg.key.fromMe; // TRUE si es cliente (entrante)
-    const numeroCliente = esCliente ? msg.key.remoteJid : (msg.key.participant || msg.key.remoteJid);
-    const numeroComercio = esCliente ? (msg.key.participant || msg.key.remoteJid) : msg.key.remoteJid;
-
     const texto = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+    const esCliente = !msg.key.fromMe;
+    const numeroCliente = esCliente ? msg.key.remoteJid : msg.key.remoteJid;
+    const numeroComercio = esCliente ? whatsappClient.user.id : whatsappClient.user.id;
 
     try {
       const { error } = await supabase
         .from('mensajes')
         .insert({
-          whatsapp_from: esCliente ? numeroCliente : numeroComercio, // Quien envía
-          whatsapp_to: esCliente ? numeroComercio : numeroCliente,   // Quien recibe
+          whatsapp_from: esCliente ? numeroCliente : numeroComercio,
+          whatsapp_to: esCliente ? numeroComercio : numeroCliente,
           texto: texto,
-          enviado_por_bot: msg.key.fromMe // TRUE si lo manda el bot/humano, FALSE si es cliente
+          enviado_por_bot: !esCliente // TRUE si lo manda el comercio (bot o humano)
         });
       if (error) console.error('❌ Error guardando en DB:', error.message);
       else console.log('🗄️ Mensaje guardado en DB');
@@ -125,8 +122,7 @@ client.ev.on('messages.upsert', async (m) => {
       console.error('❌ Excepción al guardar en DB:', err);
     }
 
-    // Solo reenviá a n8n si es entrante (de cliente)
-    if (!msg.key.fromMe && texto) {
+    if (esCliente && texto) {
       try {
         await fetch(N8N_WEBHOOK_URL, {
           method: 'POST',
@@ -140,6 +136,7 @@ client.ev.on('messages.upsert', async (m) => {
     }
   }
 });
+
 
 
   await loadGlobalCatalog();
