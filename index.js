@@ -100,37 +100,42 @@ async function initWhatsApp() {
   });
 
   client.ev.on('messages.upsert', async (m) => {
-    const msg = m.messages[0];
-    if (!msg.key.fromMe && msg.message) {
-      console.log('📩 Mensaje entrante:', msg.key.remoteJid, msg.message.conversation);
+  const msg = m.messages[0];
+  // Si hay mensaje (entrada o salida)
+  if (msg.message) {
+    // Si tiene texto (podés ajustar para otros tipos de mensaje)
+    const texto = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
 
-      try {
-        const { error } = await supabase
-          .from('mensajes')
-          .insert({
-            whatsapp_from: msg.key.remoteJid,
-            whatsapp_to: msg.key.participant || msg.key.remoteJid,
-            texto: msg.message.conversation,
-            enviado_por_bot: false
-          });
-        if (error) console.error('❌ Error guardando en DB:', error.message);
-        else console.log('🗄️ Mensaje guardado en DB');
-      } catch (err) {
-        console.error('❌ Excepción al guardar en DB:', err);
-      }
+    try {
+      const { error } = await supabase
+        .from('mensajes')
+        .insert({
+          whatsapp_from: msg.key.remoteJid,
+          whatsapp_to: msg.key.participant || msg.key.remoteJid,
+          texto: texto,
+          enviado_por_bot: msg.key.fromMe // true si lo manda el comercio (bot o humano), false si es cliente
+        });
+      if (error) console.error('❌ Error guardando en DB:', error.message);
+      else console.log('🗄️ Mensaje guardado en DB');
+    } catch (err) {
+      console.error('❌ Excepción al guardar en DB:', err);
+    }
 
+    // Solo reenviá a n8n si es entrante (de cliente) para evitar loops innecesarios
+    if (!msg.key.fromMe && texto) {
       try {
         await fetch(N8N_WEBHOOK_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: msg.key.remoteJid, body: msg.message.conversation })
+          body: JSON.stringify({ from: msg.key.remoteJid, body: texto })
         });
         console.log('➡️ Mensaje enviado a n8n');
       } catch (err) {
         console.error('❌ Error forward a n8n:', err.message);
       }
     }
-  });
+  }
+});
 
   await loadGlobalCatalog();
   whatsappClient = client;
