@@ -141,6 +141,7 @@ client.ev.on('messages.upsert', async (m) => {
   }
 });
 
+
   await loadGlobalCatalog();
   whatsappClient = client;
 }
