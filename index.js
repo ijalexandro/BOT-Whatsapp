@@ -4,7 +4,6 @@ require('dotenv').config();
 const express = require('express');
 const fetch = global.fetch || require('node-fetch');
 const { default: makeWASocket, useMultiFileAuthState } = require('@adiwajshing/baileys');
-const { Boom } = require('@hapi/boom');
 const QRCode = require('qrcode');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -18,9 +17,7 @@ const {
   SESSION_FILE
 } = process.env;
 
-// Inicializa cliente Supabase
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
 const app = express();
 app.use(express.json());
 
@@ -70,13 +67,12 @@ async function loadGlobalCatalog() {
     return data;
   } catch (err) {
     console.error('❌ Error al cargar el catálogo global:', err.message, err.details);
-    console.error('❌ Excepción al cargar el catálogo global:', err);
     return null;
   }
 }
 
 async function initWhatsApp() {
-  console.log('📡 Iniciando cliente WhatsApp...');
+  console.log('📡 Iniciando WhatsApp...');
   const { state, saveCreds } = await useMultiFileAuthState('baileys_auth');
 
   const client = makeWASocket({
@@ -106,13 +102,17 @@ async function initWhatsApp() {
 
   client.ev.on('messages.upsert', async (m) => {
     const msg = m.messages[0];
-    if (!msg.message) return;
+    const from = msg.key.remoteJid;
 
-    // 🔍 Log completo para diagnóstico
-    console.log('🔑 msg.key:', msg.key);
-    console.log('📨 msg.message:', JSON.stringify(msg.message, null, 2));
+    console.log(`📩 Mensaje de ${from}`);
+    console.log('🧩 msg.key:', JSON.stringify(msg.key, null, 2));
+    console.log('🧩 msg.message:', JSON.stringify(msg.message, null, 2));
 
-    // 🧠 Extracción robusta del texto
+    if (!msg.message) {
+      console.warn('⚠️ msg.message está vacío, pero igual llegó algo.');
+      return;
+    }
+
     let texto = '';
 
     if (msg.message.conversation) {
@@ -123,17 +123,14 @@ async function initWhatsApp() {
       texto = msg.message.ephemeralMessage.message.conversation;
     } else if (msg.message?.ephemeralMessage?.message?.extendedTextMessage?.text) {
       texto = msg.message.ephemeralMessage.message.extendedTextMessage.text;
-    } else {
-      console.warn('⚠️ No se pudo extraer texto. Estructura desconocida.');
     }
 
-    if (!numeroComercio) {
-      console.error('❌ numeroComercio no inicializado aún.');
+    if (!texto) {
+      console.warn('⚠️ No se pudo extraer texto útil del mensaje.');
       return;
     }
 
-    const from = msg.key.fromMe ? numeroComercio : msg.key.remoteJid;
-    const to   = msg.key.fromMe ? msg.key.remoteJid : numeroComercio;
+    const to = msg.key.fromMe ? msg.key.remoteJid : numeroComercio;
 
     try {
       const { error } = await supabase
@@ -141,7 +138,7 @@ async function initWhatsApp() {
         .insert({
           whatsapp_from: from,
           whatsapp_to: to,
-          texto: texto,
+          texto,
           enviado_por_bot: msg.key.fromMe
         });
       if (error) console.error('❌ Error guardando en DB:', error.message);
@@ -150,15 +147,14 @@ async function initWhatsApp() {
       console.error('❌ Excepción al guardar en DB:', err);
     }
 
-    // Solo reenviá a n8n si es cliente → comercio
-    if (!msg.key.fromMe && texto) {
+    if (!msg.key.fromMe) {
       try {
         await fetch(N8N_WEBHOOK_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: from, body: texto })
+          body: JSON.stringify({ from, body: texto })
         });
-        console.log('➡️ Mensaje enviado a n8n');
+        console.log('➡️ Forward a n8n');
       } catch (err) {
         console.error('❌ Error forward a n8n:', err.message);
       }
