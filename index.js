@@ -101,15 +101,18 @@ async function initWhatsApp() {
   });
 
   client.ev.on('messages.upsert', async (m) => {
-    const msg = m.messages[0];
-    const from = msg.key.remoteJid;
+    console.log('📥 Evento messages.upsert recibido');
 
+    const msg = m.messages?.[0];
+    if (!msg) return console.warn('⚠️ No hay mensaje válido en m.messages[0]');
+
+    const from = msg.key?.remoteJid || 'desconocido';
     console.log(`📩 Mensaje de ${from}`);
-    console.log('🧩 msg.key:', JSON.stringify(msg.key, null, 2));
-    console.log('🧩 msg.message:', JSON.stringify(msg.message, null, 2));
+    console.log('🧨 msg.message:', JSON.stringify(msg.message, null, 2));
+    console.log('🧨 msg completo:', JSON.stringify(msg, null, 2));
 
     if (!msg.message) {
-      console.warn('⚠️ msg.message está vacío, pero igual llegó algo.');
+      console.warn('⚠️ msg.message está vacío');
       return;
     }
 
@@ -127,7 +130,6 @@ async function initWhatsApp() {
 
     if (!texto) {
       console.warn('⚠️ No se pudo extraer texto útil del mensaje.');
-      return;
     }
 
     const to = msg.key.fromMe ? msg.key.remoteJid : numeroComercio;
@@ -147,7 +149,7 @@ async function initWhatsApp() {
       console.error('❌ Excepción al guardar en DB:', err);
     }
 
-    if (!msg.key.fromMe) {
+    if (!msg.key.fromMe && texto) {
       try {
         await fetch(N8N_WEBHOOK_URL, {
           method: 'POST',
