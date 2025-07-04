@@ -1,203 +1,181 @@
-// src/index.js
-
-require('dotenv').config();
-const express = require('express');
-const fetch = global.fetch || require('node-fetch');
-const { default: makeWASocket, useMultiFileAuthState } = require('@adiwajshing/baileys');
-const QRCode = require('qrcode');
+// Importar las librerías necesarias
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, getContentType, extractMessageContent } = require('@whiskeysockets/baileys');
+const Boom = require('@hapi/boom');
 const { createClient } = require('@supabase/supabase-js');
 
-const {
-  SUPABASE_URL,
-  SUPABASE_SERVICE_ROLE_KEY,
-  N8N_WEBHOOK_URL,
-  BASE_URL,
-  PORT,
-  SESSION_BUCKET,
-  SESSION_FILE
-} = process.env;
+// Configurar Supabase (usar variables de entorno para seguridad)
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-const app = express();
-app.use(express.json());
+// Variable global para el socket de WhatsApp
+let sock;
 
-let whatsappClient, latestQr = null;
-let globalCatalog = null;
-let numeroComercio = null;
-
-async function loadSession() {
-  console.log('📂 Intentando cargar sesión desde Supabase Storage...');
-  try {
-    const { data, error } = await supabase.storage
-      .from(SESSION_BUCKET)
-      .download(SESSION_FILE);
-    if (error) throw error;
-    const sessionData = await data.text();
-    return JSON.parse(sessionData);
-  } catch (err) {
-    console.error('❌ Error descargando sesión:', err, err.message, err.details);
-    return null;
-  }
-}
-
-async function saveSession(session) {
-  console.log('💾 Intentando guardar sesión en Supabase Storage...');
-  try {
-    const { error } = await supabase.storage
-      .from(SESSION_BUCKET)
-      .upload(SESSION_FILE, JSON.stringify(session), {
-        upsert: true,
-      });
-    if (error) throw error;
-    console.log('✅ Sesión guardada correctamente en Supabase Storage');
-  } catch (err) {
-    console.error('❌ Error guardando sesión:', err);
-  }
-}
-
-async function loadGlobalCatalog() {
-  console.log('📋 Intentando cargar catálogo global...');
-  try {
-    const { data, error } = await supabase
-      .from('productos')
-      .select('id, nombre, descripcion, precio, tamano, foto_url, categoria');
-    if (error) throw error;
-    globalCatalog = data;
-    console.log('✅ Catálogo global cargado correctamente:', data.length, 'productos');
-    return data;
-  } catch (err) {
-    console.error('❌ Error al cargar el catálogo global:', err.message, err.details);
-    return null;
-  }
-}
-
+/**
+ * Inicializa la conexión de WhatsApp y configura los manejadores de eventos.
+ */
 async function initWhatsApp() {
-  console.log('📡 Iniciando WhatsApp...');
-  const { state, saveCreds } = await useMultiFileAuthState('baileys_auth');
-
-  const client = makeWASocket({
-    auth: state,
-    printQRInTerminal: false,
-  });
-
-  client.ev.on('creds.update', saveCreds);
-
-  client.ev.on('connection.update', async (update) => {
-    const { qr, connection, lastDisconnect } = update;
-    if (qr) {
-      latestQr = qr;
-      console.log('--- QR RECEIVED ---');
-      console.log(`🖼️  Escanea en tu navegador: ${BASE_URL}/qr`);
-    }
-    if (connection === 'open') {
-      numeroComercio = client.user.id;
-      console.log('✅ WhatsApp listo', numeroComercio);
-    }
-    if (connection === 'close') {
-      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== 401;
-      if (shouldReconnect) initWhatsApp();
-      console.log('❌ WhatsApp desconectado:', lastDisconnect?.error);
-    }
-  });
-
-  client.ev.on('messages.upsert', async (m) => {
-    console.log('📥 Evento messages.upsert recibido');
-
-    const msg = m.messages?.[0];
-    if (!msg) return console.warn('⚠️ No hay mensaje válido en m.messages[0]');
-
-    const from = msg.key?.remoteJid || 'desconocido';
-    console.log(`📩 Mensaje de ${from}`);
-    console.log('🧨 msg.message:', JSON.stringify(msg.message, null, 2));
-    console.log('🧨 msg completo:', JSON.stringify(msg, null, 2));
-
-    if (!msg.message) {
-      console.warn('⚠️ msg.message está vacío');
-      return;
-    }
-
-    let texto = '';
-
-    if (msg.message.conversation) {
-      texto = msg.message.conversation;
-    } else if (msg.message.extendedTextMessage?.text) {
-      texto = msg.message.extendedTextMessage.text;
-    } else if (msg.message?.ephemeralMessage?.message?.conversation) {
-      texto = msg.message.ephemeralMessage.message.conversation;
-    } else if (msg.message?.ephemeralMessage?.message?.extendedTextMessage?.text) {
-      texto = msg.message.ephemeralMessage.message.extendedTextMessage.text;
-    }
-
-    if (!texto) {
-      console.warn('⚠️ No se pudo extraer texto útil del mensaje.');
-    }
-
-    const to = msg.key.fromMe ? msg.key.remoteJid : numeroComercio;
-
     try {
-      const { error } = await supabase
-        .from('mensajes')
-        .insert({
-          whatsapp_from: from,
-          whatsapp_to: to,
-          texto,
-          enviado_por_bot: msg.key.fromMe
+        // Estado de autenticación de Baileys (almacenamiento en múltiples archivos)
+        const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+        sock = makeWASocket({
+            auth: state,
+            printQRInTerminal: true // Muestra el código QR en la terminal para escanear
+            // Puedes agregar logger: P({ level: 'debug' }) si deseas más detalles de Baileys
         });
-      if (error) console.error('❌ Error guardando en DB:', error.message);
-      else console.log(`🗄️ Guardado: de ${from} a ${to}`);
+
+        // Guardar credenciales actualizadas en disco
+        sock.ev.on('creds.update', saveCreds);
+
+        // Manejador de actualización de conexión
+        sock.ev.on('connection.update', (update) => {
+            const { connection, lastDisconnect, qr } = update;
+            if (qr) {
+                console.log('⚡ Escanee el código QR para vincular WhatsApp.');
+            }
+            if (connection === 'close') {
+                const statusCode = lastDisconnect?.error?.output?.statusCode;
+                if (statusCode === DisconnectReason.loggedOut) {
+                    console.log('❌ Conexión cerrada: se cerró la sesión de WhatsApp. Deberá autenticarse nuevamente.');
+                    // No intentamos reconectar automáticamente si las credenciales no son válidas (sesión cerrada).
+                } else {
+                    console.log('⚠️ Conexión perdida inesperadamente. Intentando reconectar...');
+                    initWhatsApp(); // Reconectar si no fue un cierre de sesión manual
+                }
+            } else if (connection === 'open') {
+                console.log('✅ Conexión a WhatsApp establecida exitosamente!');
+                if (sock.user) {
+                    console.log(`✅ Bot conectado como: ${sock.user.id}`);
+                }
+            }
+        });
+
+        // Manejador de nuevos mensajes entrantes
+        sock.ev.on('messages.upsert', async ({ messages, type }) => {
+            // Solo procesar nuevos mensajes (omitimos historiales u otros tipos)
+            if (type !== 'notify') return;
+            for (const msg of messages) {
+                try {
+                    // Ignorar mensajes propios enviados (fromMe) para solo registrar entrantes
+                    if (msg.key.fromMe) continue;
+
+                    // Obtener contenido completo del mensaje
+                    const fullMessage = msg.message;
+                    if (!fullMessage) {
+                        // Mensaje sin contenido (puede ser notificación de mensaje eliminado u otro tipo)
+                        console.log('📌 Mensaje entrante sin contenido (posible mensaje de protocolo). key:', msg.key);
+                        // Aún así, intentamos guardar la información básica en Supabase
+                        await supabase.from('MessageLogs').insert({
+                            from: msg.key.participant ? msg.key.participant.split('@')[0] : (msg.key.remoteJid ? msg.key.remoteJid.split('@')[0] : null),
+                            to: msg.key.remoteJid ? (msg.key.remoteJid.endsWith('@g.us') ? msg.key.remoteJid : (sock.user?.id ? sock.user.id.split('@')[0] : null)) : null,
+                            type: 'empty',
+                            text: null,
+                            message_json: {} // Guardamos un objeto vacío ya que no hay contenido
+                        });
+                        continue;
+                    }
+
+                    // Determinar tipo de mensaje (p. ej. conversation, imageMessage, etc.), incluyendo envoltorios como ephemeral/viewOnce
+                    const originalType = getContentType(fullMessage) || 'unknown';
+                    const innerContent = extractMessageContent(fullMessage) || fullMessage;
+                    const innerType = getContentType(innerContent) || 'unknown';
+                    let messageType = innerType;
+                    if (originalType !== innerType && (originalType === 'ephemeralMessage' || originalType === 'viewOnceMessage')) {
+                        // Indicar en el tipo si era un mensaje efímero o de visualización única
+                        messageType = `${innerType} (${originalType === 'ephemeralMessage' ? 'ephemeral' : 'view once'})`;
+                    }
+
+                    // Extraer el texto del mensaje, manejando múltiples formas de texto
+                    let textContent = null;
+                    if (innerContent.conversation) {
+                        textContent = innerContent.conversation;
+                    } else if (innerContent.extendedTextMessage) {
+                        textContent = innerContent.extendedTextMessage.text;
+                    } else if (innerContent.imageMessage) {
+                        // Texto de imagen (pie de foto)
+                        textContent = innerContent.imageMessage.caption || null;
+                    } else if (innerContent.videoMessage) {
+                        // Texto de video (pie de foto)
+                        textContent = innerContent.videoMessage.caption || null;
+                    } else if (innerContent.documentMessage) {
+                        // Texto de documento (por ejemplo, nombre o pie de foto del archivo)
+                        textContent = innerContent.documentMessage.caption || null;
+                    } else if (innerContent.buttonsResponseMessage) {
+                        // Texto seleccionado de una respuesta de botón
+                        textContent = innerContent.buttonsResponseMessage.selectedDisplayText || innerContent.buttonsResponseMessage.selectedButtonId || null;
+                    } else if (innerContent.listResponseMessage) {
+                        // Texto seleccionado de una respuesta de lista
+                        if (innerContent.listResponseMessage.singleSelectReply) {
+                            textContent = innerContent.listResponseMessage.singleSelectReply.selectedRowId || innerContent.listResponseMessage.title || null;
+                        } else {
+                            textContent = innerContent.listResponseMessage.title || null;
+                        }
+                    } else if (innerContent.templateButtonReplyMessage) {
+                        // Texto seleccionado de un botón de plantilla
+                        textContent = innerContent.templateButtonReplyMessage.selectedDisplayText || innerContent.templateButtonReplyMessage.selectedId || null;
+                    } else if (innerContent.reactionMessage) {
+                        // Reacción (emoji)
+                        textContent = innerContent.reactionMessage.emoji || innerContent.reactionMessage.text || null;
+                    }
+                    // (Si se requieren más tipos, se pueden agregar casos similares)
+
+                    // Determinar número de origen (quien envía) y destino (a quién se envía)
+                    let from = msg.key.participant || msg.key.remoteJid;  // participante en grupo, o remitente directo
+                    let to = msg.key.remoteJid;                           // ID del chat destino (grupo o chat individual)
+                    const isGroup = to.endsWith('@g.us');
+                    if (from) {
+                        from = from.split('@')[0]; // obtener solo el número (sin el dominio @s.whatsapp.net)
+                    }
+                    if (isGroup) {
+                        // Si es un grupo, el destino será el ID del grupo completo
+                        // (from ya es el número del participante gracias a lo anterior)
+                    } else {
+                        // Si es chat individual, `to` realmente es el número del bot (nuestro número)
+                        if (sock.user && sock.user.id) {
+                            to = sock.user.id;
+                        }
+                        if (to) {
+                            to = to.split('@')[0];
+                        }
+                    }
+
+                    // Log detallado en la consola para debugging
+                    console.log('----------------------------------------');
+                    console.log('📥 Nuevo mensaje entrante:');
+                    console.log(`→ Origen (de): ${from}`);
+                    console.log(`→ Destino (para): ${to}`);
+                    console.log(`→ Tipo de mensaje: ${messageType}`);
+                    if (textContent) {
+                        console.log(`→ Texto: ${textContent}`);
+                    } else {
+                        console.log('→ Texto: (no determinado o sin texto)');
+                    }
+                    console.log('→ Objeto de mensaje completo:', JSON.stringify(fullMessage, null, 2));
+                    console.log('----------------------------------------');
+
+                    // Guardar los datos en Supabase
+                    const { error } = await supabase.from('MessageLogs').insert({
+                        from: from || null,
+                        to: to || null,
+                        type: messageType,
+                        text: textContent || null,
+                        message_json: fullMessage
+                    });
+                    if (error) {
+                        console.error('❗ Error guardando mensaje en Supabase:', error.message || error);
+                    } else {
+                        console.log('✅ Mensaje registrado en Supabase correctamente.');
+                    }
+                } catch (err) {
+                    console.error('❗ Error procesando un mensaje entrante:', err);
+                }
+            }
+        });
+
     } catch (err) {
-      console.error('❌ Excepción al guardar en DB:', err);
+        console.error('❗ Error inicializando WhatsApp:', err);
     }
-
-    if (!msg.key.fromMe && texto) {
-      try {
-        await fetch(N8N_WEBHOOK_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from, body: texto })
-        });
-        console.log('➡️ Forward a n8n');
-      } catch (err) {
-        console.error('❌ Error forward a n8n:', err.message);
-      }
-    }
-  });
-
-  await loadGlobalCatalog();
-  whatsappClient = client;
 }
 
-app.get('/qr', async (req, res) => {
-  if (!latestQr) return res.status(404).send('QR no disponible');
-  try {
-    const img = await QRCode.toBuffer(latestQr);
-    res.set('Content-Type', 'image/png');
-    res.send(img);
-  } catch (err) {
-    console.error('Error generando QR PNG:', err);
-    res.status(500).send('Error generando imagen QR');
-  }
-});
-
-app.post('/send-message', async (req, res) => {
-  const { to, body } = req.body;
-  if (!whatsappClient) return res.status(503).send('WhatsApp no inicializado');
-  try {
-    await whatsappClient.sendMessage(to, { text: body });
-    console.log(`✔️ Mensaje enviado a ${to}`);
-    res.json({ status: 'enviado' });
-  } catch (err) {
-    console.error('Error enviando mensaje:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/webhook/new-message', (req, res) => {
-  console.log('🔔 Webhook recibido:', req.body);
-  res.sendStatus(200);
-});
-
-initWhatsApp().catch(err => console.error('❌ initWhatsApp error:', err));
-
-const port = PORT || 3000;
-app.listen(port, () => console.log(`🚀 Server escuchando en puerto ${port}`));
+// Iniciar la conexión al ejecutar el archivo
+initWhatsApp();
