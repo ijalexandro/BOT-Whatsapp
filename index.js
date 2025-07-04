@@ -26,7 +26,7 @@ app.use(express.json());
 
 let whatsappClient, latestQr = null;
 let globalCatalog = null;
-let numeroComercio = null; // <--- ACA
+let numeroComercio = null;
 
 async function loadSession() {
   console.log('📂 Intentando cargar sesión desde Supabase Storage...');
@@ -94,7 +94,7 @@ async function initWhatsApp() {
       console.log(`🖼️  Escanea en tu navegador: ${BASE_URL}/qr`);
     }
     if (connection === 'open') {
-      numeroComercio = client.user.id; // <--- GUARDA ACA EL NRO DEL COMERCIO
+      numeroComercio = client.user.id;
       console.log('✅ WhatsApp listo', numeroComercio);
     }
     if (connection === 'close') {
@@ -106,43 +106,61 @@ async function initWhatsApp() {
 
   client.ev.on('messages.upsert', async (m) => {
     const msg = m.messages[0];
-    if (msg.message) {
-      const texto = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
-      if (!numeroComercio) {
-        console.error('❌ numeroComercio no inicializado aún.');
-        return;
-      }
-      // Logica: de cliente al comercio, de comercio al cliente
-      const from = msg.key.fromMe ? numeroComercio : msg.key.remoteJid;
-      const to   = msg.key.fromMe ? msg.key.remoteJid : numeroComercio;
+    if (!msg.message) return;
 
+    // 🔍 Log completo para diagnóstico
+    console.log('🔑 msg.key:', msg.key);
+    console.log('📨 msg.message:', JSON.stringify(msg.message, null, 2));
+
+    // 🧠 Extracción robusta del texto
+    let texto = '';
+
+    if (msg.message.conversation) {
+      texto = msg.message.conversation;
+    } else if (msg.message.extendedTextMessage?.text) {
+      texto = msg.message.extendedTextMessage.text;
+    } else if (msg.message?.ephemeralMessage?.message?.conversation) {
+      texto = msg.message.ephemeralMessage.message.conversation;
+    } else if (msg.message?.ephemeralMessage?.message?.extendedTextMessage?.text) {
+      texto = msg.message.ephemeralMessage.message.extendedTextMessage.text;
+    } else {
+      console.warn('⚠️ No se pudo extraer texto. Estructura desconocida.');
+    }
+
+    if (!numeroComercio) {
+      console.error('❌ numeroComercio no inicializado aún.');
+      return;
+    }
+
+    const from = msg.key.fromMe ? numeroComercio : msg.key.remoteJid;
+    const to   = msg.key.fromMe ? msg.key.remoteJid : numeroComercio;
+
+    try {
+      const { error } = await supabase
+        .from('mensajes')
+        .insert({
+          whatsapp_from: from,
+          whatsapp_to: to,
+          texto: texto,
+          enviado_por_bot: msg.key.fromMe
+        });
+      if (error) console.error('❌ Error guardando en DB:', error.message);
+      else console.log(`🗄️ Guardado: de ${from} a ${to}`);
+    } catch (err) {
+      console.error('❌ Excepción al guardar en DB:', err);
+    }
+
+    // Solo reenviá a n8n si es cliente → comercio
+    if (!msg.key.fromMe && texto) {
       try {
-        const { error } = await supabase
-          .from('mensajes')
-          .insert({
-            whatsapp_from: from,
-            whatsapp_to: to,
-            texto: texto,
-            enviado_por_bot: msg.key.fromMe
-          });
-        if (error) console.error('❌ Error guardando en DB:', error.message);
-        else console.log(`🗄️ Guardado: de ${from} a ${to}`);
+        await fetch(N8N_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: from, body: texto })
+        });
+        console.log('➡️ Mensaje enviado a n8n');
       } catch (err) {
-        console.error('❌ Excepción al guardar en DB:', err);
-      }
-
-      // Solo reenviá a n8n si es cliente → comercio
-      if (!msg.key.fromMe && texto) {
-        try {
-          await fetch(N8N_WEBHOOK_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ from: from, body: texto })
-          });
-          console.log('➡️ Mensaje enviado a n8n');
-        } catch (err) {
-          console.error('❌ Error forward a n8n:', err.message);
-        }
+        console.error('❌ Error forward a n8n:', err.message);
       }
     }
   });
