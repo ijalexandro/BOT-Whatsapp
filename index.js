@@ -1,35 +1,38 @@
+const express = require('express');
+const qrcode = require('qrcode');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, getContentType, extractMessageContent } = require('@whiskeysockets/baileys');
 const { createClient } = require('@supabase/supabase-js');
-const qrcode = require('qrcode');
-const express = require('express');
 
-// Supabase config
+// Configurar Supabase
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Web server para mostrar el QR
+// Inicializar servidor Express
 const app = express();
+const PORT = process.env.PORT || 3000;
+
 let qrCodeBase64 = '';
 
 app.get('/qr', (req, res) => {
     if (qrCodeBase64) {
         res.send(`<h2>Escaneá el código QR para vincular WhatsApp</h2><img src="${qrCodeBase64}" />`);
     } else {
-        res.send('QR no disponible aún. Esperá unos segundos y recargá.');
+        res.send('QR no disponible todavía. Esperá unos segundos y recargá.');
     }
 });
 
-app.listen(3000, () => {
-    console.log('🌐 QR disponible en http://localhost:3000/qr (o tu dominio público)');
+app.listen(PORT, () => {
+    console.log(`🚀 Server en puerto ${PORT}`);
 });
 
-// WhatsApp
+// Inicializar conexión WhatsApp
 let sock;
 
 async function initWhatsApp() {
     try {
         const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+
         sock = makeWASocket({
             auth: state,
             printQRInTerminal: true
@@ -37,27 +40,29 @@ async function initWhatsApp() {
 
         sock.ev.on('creds.update', saveCreds);
 
-        sock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect, qr } = update;
-
+        sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
             if (qr) {
-                console.log('⚡ Escanee el código QR para vincular WhatsApp.');
-                qrCodeBase64 = await qrcode.toDataURL(qr);
+                try {
+                    qrCodeBase64 = await qrcode.toDataURL(qr);
+                    console.log('⚡ Escaneá el código QR en: /qr');
+                } catch (err) {
+                    console.error('❌ Error generando QR:', err);
+                }
             }
 
             if (connection === 'close') {
-                const statusCode = lastDisconnect?.error?.output?.statusCode;
-                if (statusCode === DisconnectReason.loggedOut) {
-                    console.log('❌ Sesión cerrada. Escaneá el nuevo código QR.');
+                const code = lastDisconnect?.error?.output?.statusCode;
+                if (code === DisconnectReason.loggedOut) {
+                    console.log('❌ Sesión cerrada. Debe escanear el QR nuevamente.');
                 } else {
-                    console.log('⚠️ Conexión perdida. Reintentando...');
+                    console.log('🔁 Conexión cerrada inesperadamente. Reintentando...');
                     initWhatsApp();
                 }
             }
 
             if (connection === 'open') {
-                console.log('✅ Conectado a WhatsApp!');
-                if (sock.user) console.log(`Bot activo como: ${sock.user.id}`);
+                console.log('✅ WhatsApp conectado');
+                if (sock.user) console.log(`🤖 Bot conectado como: ${sock.user.id}`);
             }
         });
 
@@ -67,14 +72,15 @@ async function initWhatsApp() {
             for (const msg of messages) {
                 try {
                     if (msg.key.fromMe) continue;
+
                     const fullMessage = msg.message;
-                    if (!fullMessage) continue;
+                    if (!fullMessage) return;
 
                     const originalType = getContentType(fullMessage) || 'unknown';
                     const innerContent = extractMessageContent(fullMessage) || fullMessage;
                     const innerType = getContentType(innerContent) || 'unknown';
-
                     let messageType = innerType;
+
                     if (originalType !== innerType && ['ephemeralMessage', 'viewOnceMessage'].includes(originalType)) {
                         messageType = `${innerType} (${originalType})`;
                     }
@@ -95,7 +101,7 @@ async function initWhatsApp() {
                     from = from?.split('@')[0];
                     if (!isGroup && sock.user?.id) to = sock.user.id.split('@')[0];
 
-                    await supabase.from('MessageLogs').insert({
+                    const { error } = await supabase.from('MessageLogs').insert({
                         from: from || null,
                         to: to || null,
                         type: messageType,
@@ -103,7 +109,11 @@ async function initWhatsApp() {
                         message_json: fullMessage
                     });
 
-                    console.log(`📥 Mensaje de ${from}: ${textContent || '(sin texto)'}`);
+                    if (error) {
+                        console.error('❗ Error guardando en Supabase:', error.message);
+                    } else {
+                        console.log(`📥 Mensaje de ${from}: ${textContent || '(sin texto)'}`);
+                    }
                 } catch (err) {
                     console.error('❗ Error procesando mensaje:', err);
                 }
@@ -115,4 +125,3 @@ async function initWhatsApp() {
 }
 
 initWhatsApp();
-
